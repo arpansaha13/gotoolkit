@@ -10,10 +10,11 @@ import (
 //
 // Parameters:
 //   - logChan: Buffered channel that will receive log entries
+//   - level: Minimum log level to emit (e.g. zapcore.DebugLevel, zapcore.InfoLevel)
 //
 // The channel should have sufficient buffer to avoid blocking the application.
 // Recommended buffer size: 1000-5000 depending on log volume.
-func InitLoggerWithChannel(logChan chan<- []byte) (*zap.Logger, error) {
+func InitLoggerWithChannel(logChan chan<- []byte, level zapcore.Level) (*zap.Logger, error) {
 	// Create channel writer
 	channelWriter := NewChannelWriter(logChan)
 
@@ -40,7 +41,7 @@ func InitLoggerWithChannel(logChan chan<- []byte) (*zap.Logger, error) {
 	core := zapcore.NewCore(
 		encoder,
 		zapcore.AddSync(channelWriter),
-		zapcore.InfoLevel,
+		level,
 	)
 
 	// Create logger
