@@ -1,24 +1,21 @@
 package logger
 
 import (
+	"os"
+
+	"go.opentelemetry.io/contrib/bridges/otelzap"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-// InitLoggerWithChannel creates a zap logger that writes logs to the provided channel.
-// This logger is suitable for production environments where logs need to be streamed.
+// InitLogger creates a zap.Logger that fans out to two cores via zapcore.NewTee:
+//  1. A stdout JSON core — same schema and encoder config as before.
+//  2. An OTel bridge core — routes records through loggerProvider to the Kafka exporter.
 //
-// Parameters:
-//   - logChan: Buffered channel that will receive log entries
-//   - level: Minimum log level to emit (e.g. zapcore.DebugLevel, zapcore.InfoLevel)
-//
-// The channel should have sufficient buffer to avoid blocking the application.
-// Recommended buffer size: 1000-5000 depending on log volume.
-func InitLoggerWithChannel(logChan chan<- []byte, level zapcore.Level) (*zap.Logger, error) {
-	// Create channel writer
-	channelWriter := NewChannelWriter(logChan)
-
-	// Create encoder config for structured logging
+// The loggerProvider must be created with NewKafkaLoggerProvider and its Shutdown
+// must be deferred by the caller for proper flush on graceful shutdown.
+func InitLogger(loggerProvider *sdklog.LoggerProvider, level zapcore.Level) (*zap.Logger, error) {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "timestamp",
 		LevelKey:       "level",
@@ -34,18 +31,22 @@ func InitLoggerWithChannel(logChan chan<- []byte, level zapcore.Level) (*zap.Log
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	// Create encoder (JSON for easy parsing)
-	encoder := zapcore.NewJSONEncoder(encoderConfig)
-
-	// Create core with custom writer
-	core := zapcore.NewCore(
-		encoder,
-		zapcore.AddSync(channelWriter),
+	stdoutCore := zapcore.NewCore(
+		zapcore.NewJSONEncoder(encoderConfig),
+		zapcore.AddSync(os.Stdout),
 		level,
 	)
 
-	// Create logger
-	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
+	otelCore := otelzap.NewCore(
+		"gotoolkit/logger",
+		otelzap.WithLoggerProvider(loggerProvider),
+	)
+
+	logger := zap.New(
+		zapcore.NewTee(stdoutCore, otelCore),
+		zap.AddCaller(),
+		zap.AddStacktrace(zapcore.ErrorLevel),
+	)
 
 	return logger, nil
 }

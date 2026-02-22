@@ -4,61 +4,43 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
 // UnaryServerInterceptor returns a gRPC unary server interceptor that logs with high observability.
-// It captures trace_id, span_id, caller_ip, method name, and latency.
-// It also logs error details and status codes on error.
+// It reads trace_id and span_id from the active OTel span in the request context,
+// and captures caller_ip, method name, latency, and gRPC status on completion.
+//
+// Note: This interceptor must be chained AFTER any OTel gRPC instrumentation (e.g., otelgrpc)
+// so that span context is already present in ctx.
 func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 
-		// Get or generate trace_id from metadata
-		md, ok := metadata.FromIncomingContext(ctx)
-		traceID := ""
-		if ok {
-			values := md.Get("trace-id")
-			if len(values) > 0 {
-				traceID = values[0]
-			}
-		}
-		if traceID == "" {
-			traceID = GenerateHexString()
-		}
+		sc := trace.SpanFromContext(ctx).SpanContext()
 
-		// Generate span_id
-		spanID := GenerateHexString()
-
-		// Extract caller_ip from peer information
 		callerIP := ""
 		if peerInfo, ok := peer.FromContext(ctx); ok {
 			callerIP = peerInfo.Addr.String()
 		}
 
-		// Create a logger with trace_id, span_id, and method
-		base := zap.L()
-		logger := base.With(
-			zap.String("trace_id", traceID),
-			zap.String("span_id", spanID),
+		logger := zap.L().With(
+			zap.String("trace_id", sc.TraceID().String()),
+			zap.String("span_id", sc.SpanID().String()),
 			zap.String("method", info.FullMethod),
 			zap.String("caller_ip", callerIP),
 		)
 
-		// Inject logger into context
 		ctx = WithContext(ctx, logger)
 
-		// Call the handler
 		resp, err := handler(ctx, req)
 
-		// Calculate latency
 		latencyMs := float64(time.Since(start).Milliseconds())
 
-		// Extract status code and text from error
 		statusCode := 0
 		statusText := "OK"
 		errorDetails := ""
@@ -70,7 +52,6 @@ func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 			errorDetails = err.Error()
 		}
 
-		// Log completion
 		logFields := []zap.Field{
 			zap.Int("status_code", statusCode),
 			zap.String("status_text", statusText),

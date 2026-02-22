@@ -2,9 +2,6 @@ package logger
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
 
 	"go.uber.org/zap"
 )
@@ -34,14 +31,4 @@ func WithFields(ctx context.Context, fields ...zap.Field) context.Context {
 	logger := FromContext(ctx)
 	newLogger := logger.With(fields...)
 	return WithContext(ctx, newLogger)
-}
-
-// GenerateHexString generates a random 16-character hex string.
-func GenerateHexString() string {
-	b := make([]byte, 8) // 8 bytes = 16 hex characters
-	if _, err := rand.Read(b); err != nil {
-		// Fallback if random generation fails
-		return fmt.Sprintf("%016x", 0)
-	}
-	return hex.EncodeToString(b)
 }
