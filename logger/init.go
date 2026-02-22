@@ -3,19 +3,17 @@ package logger
 import (
 	"os"
 
-	"go.opentelemetry.io/contrib/bridges/otelzap"
+	"github.com/uptrace/opentelemetry-go-extra/otelzap"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-// InitLogger creates a zap.Logger that fans out to two cores via zapcore.NewTee:
-//  1. A stdout JSON core — same schema and encoder config as before.
-//  2. An OTel bridge core — routes records through loggerProvider to the Kafka exporter.
-//
+// InitLogger creates a zap.Logger wrapped with uptrace otelzap for automatic OTel span correlation.
+// The uptrace otelzap wrapper automatically attaches OTel span context to log records at emit time.
 // The loggerProvider must be created with NewKafkaLoggerProvider and its Shutdown
 // must be deferred by the caller for proper flush on graceful shutdown.
-func InitLogger(loggerProvider *sdklog.LoggerProvider, level zapcore.Level) (*zap.Logger, error) {
+func InitLogger(loggerProvider *sdklog.LoggerProvider, level zapcore.Level) (*otelzap.Logger, error) {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "timestamp",
 		LevelKey:       "level",
@@ -37,16 +35,16 @@ func InitLogger(loggerProvider *sdklog.LoggerProvider, level zapcore.Level) (*za
 		level,
 	)
 
-	otelCore := otelzap.NewCore(
-		"gotoolkit/logger",
-		otelzap.WithLoggerProvider(loggerProvider),
-	)
-
-	logger := zap.New(
-		zapcore.NewTee(stdoutCore, otelCore),
+	base := zap.New(
+		stdoutCore,
 		zap.AddCaller(),
 		zap.AddStacktrace(zapcore.ErrorLevel),
 	)
 
-	return logger, nil
+	// Wrap with uptrace otelzap for automatic span correlation
+	return otelzap.New(
+		base,
+		otelzap.WithLoggerProvider(loggerProvider),
+		otelzap.WithCallerDepth(1),
+	), nil
 }

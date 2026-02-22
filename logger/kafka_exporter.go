@@ -10,6 +10,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	otellog "go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 // KafkaExporter implements sdklog.Exporter.
@@ -69,10 +70,13 @@ func (e *KafkaExporter) ForceFlush(_ context.Context) error {
 // by KafkaExporter. The caller must call loggerProvider.Shutdown(ctx) on graceful shutdown.
 // Note: the provided kafka.Writer is owned by the exporter after this call — do NOT
 // close it separately, as Shutdown will close it.
-func NewKafkaLoggerProvider(writer *kafka.Writer) (*sdklog.LoggerProvider, error) {
+func NewKafkaLoggerProvider(writer *kafka.Writer, res *resource.Resource) (*sdklog.LoggerProvider, error) {
 	exporter := newKafkaExporter(writer)
 	processor := sdklog.NewBatchProcessor(exporter)
-	provider := sdklog.NewLoggerProvider(sdklog.WithProcessor(processor))
+	provider := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(processor),
+		sdklog.WithResource(res),
+	)
 	return provider, nil
 }
 

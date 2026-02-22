@@ -3,6 +3,7 @@ package logger
 import (
 	"context"
 
+	"github.com/uptrace/opentelemetry-go-extra/otelzap"
 	"go.uber.org/zap"
 )
 
@@ -11,24 +12,24 @@ type contextKey string
 
 const loggerContextKey contextKey = "logger"
 
-// FromContext returns the logger stored in the context.
-// If no logger is found, it returns the default zap.L().
-func FromContext(ctx context.Context) *zap.Logger {
-	if logger, ok := ctx.Value(loggerContextKey).(*zap.Logger); ok {
+// FromContext returns the *zap.Logger stored in the context with automatic OTel span correlation.
+// The uptrace/otelzap package automatically attaches span context when logging.
+// If no logger is found, it returns zap.L() with span correlation.
+func FromContext(ctx context.Context) *otelzap.Logger {
+	if logger, ok := ctx.Value(loggerContextKey).(*otelzap.Logger); ok {
 		return logger
 	}
-	return zap.L()
+	return otelzap.L()
 }
 
-// WithContext injects a logger into the context.
-func WithContext(ctx context.Context, logger *zap.Logger) context.Context {
-	return context.WithValue(ctx, loggerContextKey, logger)
+// WithContext stores a *zap.Logger in ctx for downstream retrieval via Ctx.
+func WithContext(ctx context.Context, l *otelzap.Logger) context.Context {
+	return context.WithValue(ctx, loggerContextKey, l)
 }
 
-// WithFields adds additional fields to the logger in the context,
-// creating a new logger and injecting it back.
+// WithFields adds fields to the *zap.Logger stored in ctx.
 func WithFields(ctx context.Context, fields ...zap.Field) context.Context {
 	logger := FromContext(ctx)
-	newLogger := logger.With(fields...)
+	newLogger := logger.WithOptions(zap.Fields(fields...))
 	return WithContext(ctx, newLogger)
 }

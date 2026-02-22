@@ -3,33 +3,38 @@ package logger
 import (
 	"net/http"
 
-	"go.opentelemetry.io/otel/trace"
+	"github.com/uptrace/opentelemetry-go-extra/otelzap"
 	"go.uber.org/zap"
 )
 
 // Middleware is an HTTP middleware that injects a logger into the request context.
-// It reads trace_id and span_id from the active OTel span in the request context,
-// and also captures caller_ip and content_length.
+// The logger (wrapped by uptrace otelzap) automatically captures active OTel span context
+// when logging. It also captures caller_ip and content_length.
 //
 // Note: This middleware must run AFTER any OTel HTTP instrumentation (e.g., otelhttp)
 // so that span context is already present. It must run BEFORE Auth middleware so that
 // Auth can add user_id to the logger context after validation.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sc := trace.SpanFromContext(r.Context()).SpanContext()
+		ctx := r.Context()
 
-		logger := zap.L().With(
-			zap.String("trace_id", sc.TraceID().String()),
-			zap.String("span_id", sc.SpanID().String()),
-			zap.String("caller_ip", r.RemoteAddr),
-			zap.Int64("content_length", r.ContentLength),
+		// Per-request logger: global fields (service_name etc.) + HTTP fields
+		reqLogger := otelzap.L().WithOptions(
+			zap.Fields(
+				zap.String("caller_ip", r.RemoteAddr),
+				zap.Int64("content_length", r.ContentLength),
+			),
 		)
 
-		logger.Info("incoming request",
+		// Log with span correlation (uptrace otelzap automatically attaches span)
+		reqLogger.Ctx(ctx).Info("incoming request",
 			zap.String("method", r.Method),
 			zap.String("path", r.RequestURI),
 		)
 
-		next.ServeHTTP(w, r.WithContext(WithContext(r.Context(), logger)))
+		// Store logger in context for downstream handlers
+		ctx = WithContext(ctx, reqLogger)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
