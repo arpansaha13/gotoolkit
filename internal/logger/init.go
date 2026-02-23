@@ -45,6 +45,7 @@ func InitLogger(loggerProvider *sdklog.LoggerProvider, level zapcore.Level) (*ot
 	return otelzap.New(
 		base,
 		otelzap.WithLoggerProvider(loggerProvider),
+		otelzap.WithMinLevel(level),
 		otelzap.WithCallerDepth(1),
 	), nil
 }
