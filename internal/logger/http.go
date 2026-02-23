@@ -7,14 +7,14 @@ import (
 	"go.uber.org/zap"
 )
 
-// Middleware is an HTTP middleware that injects a logger into the request context.
+// HttpMiddleware is an HTTP middleware that injects a logger into the request context.
 // The logger (wrapped by uptrace otelzap) automatically captures active OTel span context
 // when logging. It also captures caller_ip and content_length.
 //
 // Note: This middleware must run AFTER any OTel HTTP instrumentation (e.g., otelhttp)
 // so that span context is already present. It must run BEFORE Auth middleware so that
 // Auth can add user_id to the logger context after validation.
-func Middleware(next http.Handler) http.Handler {
+func HttpMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
