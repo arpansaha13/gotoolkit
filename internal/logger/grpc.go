@@ -17,7 +17,7 @@ import (
 //
 // Note: This interceptor must be chained AFTER any OTel gRPC instrumentation (e.g., otelgrpc)
 // so that span context is already present in ctx.
-func GrpcInterceptor() grpc.UnaryServerInterceptor {
+func GrpcInterceptor(l *otelzap.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 
@@ -26,7 +26,7 @@ func GrpcInterceptor() grpc.UnaryServerInterceptor {
 			callerIP = peerInfo.Addr.String()
 		}
 
-		reqLogger := otelzap.L().WithOptions(
+		reqLogger := l.WithOptions(
 			zap.Fields(
 				zap.String("method", info.FullMethod),
 				zap.String("caller_ip", callerIP),
