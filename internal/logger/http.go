@@ -3,32 +3,40 @@ package logger
 import (
 	"net/http"
 
-	"github.com/uptrace/opentelemetry-go-extra/otelzap"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
 // HttpMiddleware returns an HTTP middleware factory that injects a logger into the request context.
-// The logger (wrapped by uptrace otelzap) automatically captures active OTel span context
-// when logging. It also captures caller_ip and content_length.
+// It extracts trace_id and span_id from the OTel span context and adds them as fields.
 //
 // Note: This middleware must run AFTER any OTel HTTP instrumentation (e.g., otelhttp)
 // so that span context is already present. It must run BEFORE Auth middleware so that
 // Auth can add user_id to the logger context after validation.
-func HttpMiddleware(l *otelzap.Logger) func(http.Handler) http.Handler {
+func HttpMiddleware(l *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
-			// Per-request logger: global fields (service_name etc.) + HTTP fields
-			reqLogger := l.WithOptions(
-				zap.Fields(
-					zap.String("caller_ip", r.RemoteAddr),
-					zap.Int64("content_length", r.ContentLength),
-				),
-			)
+			// Extract span context and add trace_id and span_id as fields
+			span := trace.SpanFromContext(ctx)
+			fields := []zap.Field{
+				zap.String("caller_ip", r.RemoteAddr),
+				zap.Int64("content_length", r.ContentLength),
+			}
 
-			// Log with span correlation (uptrace otelzap automatically attaches span)
-			reqLogger.Ctx(ctx).Info("incoming request",
+			if span.SpanContext().IsValid() {
+				fields = append(fields,
+					zap.String("trace_id", span.SpanContext().TraceID().String()),
+					zap.String("span_id", span.SpanContext().SpanID().String()),
+				)
+			}
+
+			// Per-request logger: global fields (service_name etc.) + HTTP fields
+			reqLogger := l.WithOptions(zap.Fields(fields...))
+
+			// Log incoming request
+			reqLogger.Info("incoming request",
 				zap.String("method", r.Method),
 				zap.String("path", r.RequestURI),
 			)

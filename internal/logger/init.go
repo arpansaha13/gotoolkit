@@ -3,17 +3,12 @@ package logger
 import (
 	"os"
 
-	"github.com/uptrace/opentelemetry-go-extra/otelzap"
-	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-// InitLogger creates a zap.Logger wrapped with uptrace otelzap for automatic OTel span correlation.
-// The uptrace otelzap wrapper automatically attaches OTel span context to log records at emit time.
-// The loggerProvider must be created with NewKafkaLoggerProvider and its Shutdown
-// must be deferred by the caller for proper flush on graceful shutdown.
-func InitLogger(loggerProvider *sdklog.LoggerProvider, level zapcore.Level) (*otelzap.Logger, error) {
+// InitLogger creates a zap.Logger with JSON output to stdout.
+func InitLogger(level zapcore.Level) (*zap.Logger, error) {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "timestamp",
 		LevelKey:       "level",
@@ -35,17 +30,9 @@ func InitLogger(loggerProvider *sdklog.LoggerProvider, level zapcore.Level) (*ot
 		level,
 	)
 
-	base := zap.New(
+	return zap.New(
 		stdoutCore,
 		zap.AddCaller(),
 		zap.AddStacktrace(zapcore.ErrorLevel),
-	)
-
-	// Wrap with uptrace otelzap for automatic span correlation
-	return otelzap.New(
-		base,
-		otelzap.WithLoggerProvider(loggerProvider),
-		otelzap.WithMinLevel(level),
-		otelzap.WithCallerDepth(1),
 	), nil
 }

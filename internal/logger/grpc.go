@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/uptrace/opentelemetry-go-extra/otelzap"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
@@ -12,12 +12,12 @@ import (
 )
 
 // GrpcInterceptor returns a gRPC unary server interceptor that logs with high observability.
-// The logger (wrapped by uptrace otelzap) automatically captures active OTel span context
-// when logging. It also captures caller_ip, method name, latency, and gRPC status on completion.
+// It extracts trace_id and span_id from the OTel span context and adds them as fields.
+// It also captures caller_ip, method name, latency, and gRPC status on completion.
 //
 // Note: This interceptor must be chained AFTER any OTel gRPC instrumentation (e.g., otelgrpc)
 // so that span context is already present in ctx.
-func GrpcInterceptor(l *otelzap.Logger) grpc.UnaryServerInterceptor {
+func GrpcInterceptor(l *zap.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 
@@ -26,12 +26,21 @@ func GrpcInterceptor(l *otelzap.Logger) grpc.UnaryServerInterceptor {
 			callerIP = peerInfo.Addr.String()
 		}
 
-		reqLogger := l.WithOptions(
-			zap.Fields(
-				zap.String("method", info.FullMethod),
-				zap.String("caller_ip", callerIP),
-			),
-		)
+		// Extract span context and add trace_id and span_id
+		span := trace.SpanFromContext(ctx)
+		fields := []zap.Field{
+			zap.String("method", info.FullMethod),
+			zap.String("caller_ip", callerIP),
+		}
+
+		if span.SpanContext().IsValid() {
+			fields = append(fields,
+				zap.String("trace_id", span.SpanContext().TraceID().String()),
+				zap.String("span_id", span.SpanContext().SpanID().String()),
+			)
+		}
+
+		reqLogger := l.WithOptions(zap.Fields(fields...))
 		ctx = WithContext(ctx, reqLogger)
 
 		resp, err := handler(ctx, req)
