@@ -5,10 +5,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
-	"github.com/arpansaha13/gotoolkit/logger"
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/arpansaha13/gotoolkit/logger"
 )
 
 // ConnectPostgresWithBackoff connects to a PostgreSQL database with exponential backoff retry logic.
@@ -26,7 +27,7 @@ import (
 //
 // The logger is retrieved from the context via logger.FromContext,
 // falling back to the global logger if not found.
-func ConnectPostgresWithBackoff(ctx context.Context, dsn string, opts ...BackoffOption) (*gorm.DB, error) {
+func ConnectPostgresWithBackoff(ctx context.Context, dsn string, gormCfg *gorm.Config, opts ...BackoffOption) (*gorm.DB, error) {
 	cfg := applyOptions(opts)
 
 	// Retrieve logger from context or use global
@@ -37,7 +38,7 @@ func ConnectPostgresWithBackoff(ctx context.Context, dsn string, opts ...Backoff
 	operation := func() (*gorm.DB, error) {
 		attempt++
 
-		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		db, err := gorm.Open(postgres.Open(dsn), gormCfg)
 		if err != nil {
 			if attempt <= 3 {
 				l.Warn("failed to connect to postgres", zap.Int("attempt", attempt), zap.Error(err))

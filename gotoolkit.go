@@ -5,9 +5,12 @@ import (
 
 	"github.com/rabbitmq/amqp091-go"
 	"github.com/segmentio/kafka-go"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/arpansaha13/gotoolkit/internal/connect"
+	"github.com/arpansaha13/gotoolkit/internal/logger"
 )
 
 // BackoffOption is a functional option for configuring backoff behavior in connect utilities
@@ -20,8 +23,8 @@ var (
 )
 
 // ConnectPostgresWithBackoff connects to PostgreSQL with exponential backoff retry logic
-func ConnectPostgresWithBackoff(ctx context.Context, dsn string, opts ...BackoffOption) (*gorm.DB, error) {
-	return connect.ConnectPostgresWithBackoff(ctx, dsn, opts...)
+func ConnectPostgresWithBackoff(ctx context.Context, dsn string, gormCfg *gorm.Config, opts ...BackoffOption) (*gorm.DB, error) {
+	return connect.ConnectPostgresWithBackoff(ctx, dsn, gormCfg, opts...)
 }
 
 // ConnectRabbitMQWithBackoff connects to RabbitMQ with exponential backoff retry logic
@@ -32,4 +35,12 @@ func ConnectRabbitMQWithBackoff(ctx context.Context, url string, opts ...Backoff
 // ConnectKafkaWithBackoff connects to Kafka with exponential backoff retry logic
 func ConnectKafkaWithBackoff(ctx context.Context, cfg kafka.WriterConfig, opts ...BackoffOption) (*kafka.Writer, error) {
 	return connect.ConnectKafkaWithBackoff(ctx, cfg, opts...)
+}
+
+type GormLogger = logger.GormLogger
+
+// NewGormLogger creates a GormLogger backed by l. A Warn level will log slow
+// queries and errors; Info level additionally logs every query.
+func NewGormLogger(l *zap.Logger, level gormlogger.LogLevel) *GormLogger {
+	return logger.NewGormLogger(l, level)
 }
