@@ -40,16 +40,13 @@ func HttpMiddleware(l *zap.Logger) func(http.Handler) http.Handler {
 			// Per-request logger: global fields (service_name etc.) + HTTP fields
 			reqLogger := l.WithOptions(zap.Fields(fields...))
 
-			// Log user agent (one-time log, not added to context)
 			userAgent := r.Header.Get("User-Agent")
-			if userAgent != "" {
-				l.Debug("user agent", zap.String("user_agent", userAgent))
-			}
 
 			// Log incoming request
 			reqLogger.Info("incoming request",
 				zap.String("method", r.Method),
 				zap.String("path", r.RequestURI),
+				zap.String("user_agent", userAgent),
 			)
 
 			// Store logger in context for downstream handlers

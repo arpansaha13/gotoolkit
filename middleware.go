@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -22,21 +23,51 @@ type ErrorResponse struct {
 	Code    string `json:"code,omitempty"`
 }
 
+// ControllerResponse represents a successful HTTP response
+// StatusCode defaults to 200 if not set or set to 0.
+// Body is the response data to be JSON-encoded.
+type ControllerResponse struct {
+	StatusCode int `json:"-"`
+	Body       any `json:"-"`
+}
+
 // ControllerFunc is the common signature for all HTTP controllers.
-// Controllers are responsible for writing successful responses directly
-// to the ResponseWriter. On error, they MUST NOT write anything and
-// instead return a custom error value which will be handled centrally.
-type ControllerFunc func(w http.ResponseWriter, r *http.Request) error
+// Controllers return a response object and an error.
+// Controllers MUST NOT write anything to the ResponseWriter.
+// On error, they return an error value which will be handled centrally.
+// On success, they return a ControllerResponse with the desired status code and body.
+type ControllerFunc func(w http.ResponseWriter, r *http.Request) (*ControllerResponse, error)
 
 // HttpControllerAdaptor converts a ControllerFunc into a standard http.HandlerFunc.
-// It calls the controller and, if a non-nil error is returned, panics with it.
-// The global error middleware is responsible for recovering from this panic
-// and translating the error into an HTTP response.
+// It calls the controller and handles the response:
+// - On error, it panics with the error (to be handled by HttpErrorMiddleware)
+// - On success, it writes the response to ResponseWriter with proper status code
+// - It adds an X-Trace-ID header if a trace ID is found in the span context
 func HttpControllerAdaptor(c ControllerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := c(w, r); err != nil {
+		resp, err := c(w, r)
+		if err != nil {
 			panic(err)
 		}
+
+		// Add trace-id header if available
+		span := trace.SpanFromContext(r.Context())
+		if span != nil && span.SpanContext().IsValid() {
+			w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
+		}
+
+		// Set content type
+		w.Header().Set("Content-Type", "application/json")
+
+		// Set status code (default to 200 if not specified or 0)
+		statusCode := resp.StatusCode
+		if statusCode == 0 {
+			statusCode = http.StatusOK
+		}
+		w.WriteHeader(statusCode)
+
+		// Encode response body
+		json.NewEncoder(w).Encode(resp.Body)
 	}
 }
 
