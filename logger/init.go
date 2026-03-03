@@ -1,13 +1,38 @@
 package logger
 
 import (
+	"os"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-
-	internalLogger "github.com/arpansaha13/gotoolkit/internal/logger"
 )
 
 // InitLogger creates a zap.Logger with JSON output to stdout.
 func InitLogger(level zapcore.Level) (*zap.Logger, error) {
-	return internalLogger.InitLogger(level)
+	encoderConfig := zapcore.EncoderConfig{
+		TimeKey:        "timestamp",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		FunctionKey:    "function",
+		MessageKey:     "message",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+
+	stdoutCore := zapcore.NewCore(
+		zapcore.NewJSONEncoder(encoderConfig),
+		zapcore.AddSync(os.Stdout),
+		level,
+	)
+
+	return zap.New(
+		stdoutCore,
+		zap.AddCaller(),
+		zap.AddStacktrace(zapcore.ErrorLevel),
+	), nil
 }

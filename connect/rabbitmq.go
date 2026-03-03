@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/arpansaha13/gotoolkit/logger"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/rabbitmq/amqp091-go"
-	"github.com/arpansaha13/gotoolkit/logger"
 	"go.uber.org/zap"
 )
 

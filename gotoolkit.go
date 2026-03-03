@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/arpansaha13/gotoolkit/internal/connect"
-	"github.com/arpansaha13/gotoolkit/internal/logger"
+	"github.com/arpansaha13/gotoolkit/connect"
+	"github.com/arpansaha13/gotoolkit/logger"
 )
 
 // BackoffOption is a functional option for configuring backoff behavior in connect utilities
