@@ -3,6 +3,7 @@ package gotoolkit
 import (
 	"context"
 
+	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/rabbitmq/amqp091-go"
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
@@ -35,6 +36,12 @@ func ConnectRabbitMQWithBackoff(ctx context.Context, url string, opts ...Backoff
 // ConnectKafkaWithBackoff connects to Kafka with exponential backoff retry logic
 func ConnectKafkaWithBackoff(ctx context.Context, cfg kafka.WriterConfig, opts ...BackoffOption) (*kafka.Writer, error) {
 	return connect.ConnectKafkaWithBackoff(ctx, cfg, opts...)
+}
+
+// ConnectMemcachedWithBackoff creates a Memcached client and verifies connectivity
+// with exponential backoff retry logic
+func ConnectMemcachedWithBackoff(ctx context.Context, address string, opts ...BackoffOption) (*memcache.Client, error) {
+	return connect.ConnectMemcachedWithBackoff(ctx, address, opts...)
 }
 
 type GormLogger = logger.GormLogger

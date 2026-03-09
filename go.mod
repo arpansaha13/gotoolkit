@@ -3,6 +3,7 @@ module github.com/arpansaha13/gotoolkit
 go 1.25.6
 
 require (
+	github.com/bradfitz/gomemcache v0.0.0-20250403215159-8d39553ac7cf
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/segmentio/kafka-go v0.4.50
