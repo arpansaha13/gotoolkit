@@ -9,17 +9,17 @@ import (
 )
 
 // ReconnectConfig holds configuration for ConnectionManager reconnection behavior.
+// 
+// IMPORTANT: ConnectionManager does NOT implement backoff logic. Backoff should be
+// implemented in connectFn (e.g., using gotoolkit.ConnectRabbitMQWithBackoff).
+// ConnectionManager only repeats failed connection attempts with a fixed ReconnectInterval.
 type ReconnectConfig struct {
-	InitialBackoff    time.Duration
-	MaxBackoff        time.Duration
 	ConnectTimeout    time.Duration
 	ReconnectInterval time.Duration
 }
 
 // DefaultReconnectConfig provides sensible defaults for reconnection.
 var DefaultReconnectConfig = ReconnectConfig{
-	InitialBackoff:    1 * time.Second,
-	MaxBackoff:        30 * time.Second,
 	ConnectTimeout:    15 * time.Second,
 	ReconnectInterval: 500 * time.Millisecond,
 }
@@ -27,13 +27,18 @@ var DefaultReconnectConfig = ReconnectConfig{
 // ConnectionManager manages resilient reconnection logic for any stateful connection.
 // It monitors connection state and automatically attempts to reconnect on failure.
 //
+// IMPORTANT: ConnectionManager does NOT implement backoff logic. It is the responsibility
+// of connectFn to implement backoff (using gotoolkit.ConnectRabbitMQWithBackoff or similar).
+// ConnectionManager only retries with a fixed ReconnectInterval between attempts.
+//
 // Usage:
 //
 //	mgr := NewConnectionManager(
-//	    DefaultReconnectConfig,
+//	    gotoolkit.DefaultReconnectConfig,
 //	    logger,
 //	    func(ctx context.Context) error {
-//	        conn, err := setupConnection(ctx)
+//	        // connectFn should implement backoff internally!
+//	        conn, err := gotoolkit.ConnectRabbitMQWithBackoff(ctx, url)
 //	        if err != nil {
 //	            return err
 //	        }
@@ -52,22 +57,29 @@ var DefaultReconnectConfig = ReconnectConfig{
 //	mgr.Start(ctx)
 //	defer mgr.Stop()
 type ConnectionManager struct {
-	config      ReconnectConfig
-	logger      *zap.Logger
-	connectFn   func(ctx context.Context) error // User-supplied connect logic
-	disconnectFn func()                           // User-supplied cleanup logic
+	config       ReconnectConfig
+	logger       *zap.Logger
+	connectFn    func(ctx context.Context) error // User-supplied connect logic (should implement backoff)
+	disconnectFn func()                          // User-supplied cleanup logic
 
 	signalChan chan struct{}
 	done       chan struct{}
 
 	mu        sync.RWMutex
 	isRunning bool
-	backoff   time.Duration
 }
 
 // NewConnectionManager creates a new ConnectionManager with the given configuration.
-// connectFn is called to establish the connection; it should also set up monitoring
-// for connection close events and call manager.Signal() when disconnection is detected.
+//
+// IMPORTANT: ConnectionManager does NOT implement backoff logic. The connectFn is expected
+// to implement its own backoff (e.g., using gotoolkit.ConnectRabbitMQWithBackoff).
+// ConnectionManager only retries failed connection attempts using a fixed ReconnectInterval.
+//
+// connectFn is called with a timeout context. It should:
+//   - Implement connection logic with built-in backoff/retry
+//   - Set up monitoring for connection close events
+//   - Call manager.Signal() when disconnection is detected
+//
 // disconnectFn is called during cleanup to release any resources.
 func NewConnectionManager(
 	config ReconnectConfig,
@@ -75,12 +87,6 @@ func NewConnectionManager(
 	connectFn func(ctx context.Context) error,
 	disconnectFn func(),
 ) *ConnectionManager {
-	if config.InitialBackoff == 0 {
-		config.InitialBackoff = DefaultReconnectConfig.InitialBackoff
-	}
-	if config.MaxBackoff == 0 {
-		config.MaxBackoff = DefaultReconnectConfig.MaxBackoff
-	}
 	if config.ConnectTimeout == 0 {
 		config.ConnectTimeout = DefaultReconnectConfig.ConnectTimeout
 	}
@@ -95,7 +101,6 @@ func NewConnectionManager(
 		disconnectFn: disconnectFn,
 		signalChan:   make(chan struct{}, 1),
 		done:         make(chan struct{}),
-		backoff:      config.InitialBackoff,
 	}
 }
 
@@ -123,8 +128,7 @@ func (m *ConnectionManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop gracefully shuts down the connection manager. It waits up to the configured
-// ConnectTimeout for any pending connection attempt to complete, then cleans up resources.
+// Stop gracefully shuts down the connection manager, then cleans up resources.
 func (m *ConnectionManager) Stop() error {
 	m.mu.Lock()
 	if !m.isRunning {
@@ -192,48 +196,30 @@ func (m *ConnectionManager) run(ctx context.Context) {
 	}
 }
 
-// attemptConnect tries to establish the connection with exponential backoff.
-// On success, it resets the backoff. On failure, it increases backoff and retries.
+// attemptConnect tries to establish the connection once. On failure, it waits
+// for ReconnectInterval before allowing the next reconnection attempt.
+// No backoff logic is implemented here; backoff should be in connectFn.
 func (m *ConnectionManager) attemptConnect(ctx context.Context) {
-	attempt := 0
+	// Create a timeout context for this connection attempt
+	connectCtx, cancel := context.WithTimeout(ctx, m.config.ConnectTimeout)
+	err := m.connectFn(connectCtx)
+	cancel()
 
-	for {
-		select {
-		case <-m.done:
-			return
-		default:
-		}
+	if err == nil {
+		// Success: connection established
+		m.logger.Info("connection established successfully")
+		return
+	}
 
-		attempt++
-		m.logger.Info("attempting connection", zap.Int("attempt", attempt), zap.Duration("backoff", m.backoff))
+	// Failure: log error and wait before allowing next retry
+	m.logger.Error("connection attempt failed", zap.Error(err))
 
-		// Create a timeout context for this connection attempt
-		connectCtx, cancel := context.WithTimeout(ctx, m.config.ConnectTimeout)
-		err := m.connectFn(connectCtx)
-		cancel()
-
-		if err == nil {
-			// Success: reset backoff
-			m.logger.Info("connection established successfully")
-			m.backoff = m.config.InitialBackoff
-			return
-		}
-
-		// Failure: log and increase backoff
-		m.logger.Error("connection attempt failed", zap.Error(err), zap.Int("attempt", attempt))
-
-		// Calculate next backoff with exponential increase
-		nextBackoff := m.backoff * 2
-		if nextBackoff > m.config.MaxBackoff {
-			nextBackoff = m.config.MaxBackoff
-		}
-		m.backoff = nextBackoff
-
-		// Wait before retrying
-		select {
-		case <-m.done:
-			return
-		case <-time.After(m.config.ReconnectInterval):
-		}
+	// Wait for ReconnectInterval before next attempt can be triggered
+	select {
+	case <-m.done:
+		return
+	case <-time.After(m.config.ReconnectInterval):
+		// Trigger another connection attempt
+		m.Signal()
 	}
 }

@@ -51,7 +51,10 @@ type ReconnectConfig = connect.ReconnectConfig
 var DefaultReconnectConfig = connect.DefaultReconnectConfig
 
 // NewConnectionManager creates a new resilient connection manager.
-// It handles automatic reconnection with exponential backoff for any stateful connection.
+//
+// IMPORTANT: ConnectionManager does NOT implement backoff logic. The connectFn is expected
+// to implement its own backoff (e.g., using ConnectRabbitMQWithBackoff). ConnectionManager
+// only retries failed connection attempts with a fixed ReconnectInterval.
 func NewConnectionManager(
 	config ReconnectConfig,
 	logger *zap.Logger,
