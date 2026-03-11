@@ -44,6 +44,23 @@ func ConnectMemcachedWithBackoff(ctx context.Context, address string, opts ...Ba
 	return connect.ConnectMemcachedWithBackoff(ctx, address, opts...)
 }
 
+// ConnectionManager type and configuration for resilient reconnection management.
+type ConnectionManager = connect.ConnectionManager
+type ReconnectConfig = connect.ReconnectConfig
+
+var DefaultReconnectConfig = connect.DefaultReconnectConfig
+
+// NewConnectionManager creates a new resilient connection manager.
+// It handles automatic reconnection with exponential backoff for any stateful connection.
+func NewConnectionManager(
+	config ReconnectConfig,
+	logger *zap.Logger,
+	connectFn func(ctx context.Context) error,
+	disconnectFn func(),
+) *ConnectionManager {
+	return connect.NewConnectionManager(config, logger, connectFn, disconnectFn)
+}
+
 type GormLogger = logger.GormLogger
 
 // NewGormLogger creates a GormLogger backed by l. A Warn level will log slow
