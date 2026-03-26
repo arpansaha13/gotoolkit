@@ -48,6 +48,14 @@ func ConnectMemcachedWithBackoff(ctx context.Context, address string, opts ...Ba
 type ConnectionManager = connect.ConnectionManager
 type ReconnectConfig = connect.ReconnectConfig
 
+// MemcachedClient is a thread-safe wrapper around memcache.Client for managed reconnections.
+type MemcachedClient = connect.MemcachedClient
+
+// NewMemcachedClient creates a new MemcachedClient wrapper.
+func NewMemcachedClient() *MemcachedClient {
+	return connect.NewMemcachedClient()
+}
+
 var DefaultReconnectConfig = connect.DefaultReconnectConfig
 
 // NewConnectionManager creates a new resilient connection manager.
