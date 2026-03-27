@@ -54,6 +54,15 @@ func (e *ForbiddenError) Error() string {
 	return fmt.Sprintf("forbidden: %s", e.Message)
 }
 
+// ServiceUnavailableError represents service dependency outages or infrastructure issues
+type ServiceUnavailableError struct {
+	Message string
+}
+
+func (e *ServiceUnavailableError) Error() string {
+	return fmt.Sprintf("service unavailable: %s", e.Message)
+}
+
 // InternalError represents unexpected server errors
 type InternalError struct {
 	Message string
@@ -91,5 +100,10 @@ func IsUnauthorized(err error) bool {
 
 func IsForbidden(err error) bool {
 	_, ok := err.(*ForbiddenError)
+	return ok
+}
+
+func IsServiceUnavailable(err error) bool {
+	_, ok := err.(*ServiceUnavailableError)
 	return ok
 }

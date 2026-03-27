@@ -187,6 +187,10 @@ func errorToHTTP(err error) (int, string, string) {
 		return http.StatusForbidden, err.Error(), "FORBIDDEN_ERROR"
 	}
 
+	if IsServiceUnavailable(err) {
+		return http.StatusServiceUnavailable, err.Error(), "SERVICE_UNAVAILABLE_ERROR"
+	}
+
 	// Default to internal error with generic message
 	// The actual error details are logged above
 	return http.StatusInternalServerError, "Something went wrong!", "INTERNAL_ERROR"
@@ -251,6 +255,10 @@ func errorToGRPCError(err error) error {
 
 	if IsForbidden(err) {
 		return status.Error(codes.PermissionDenied, err.Error())
+	}
+
+	if IsServiceUnavailable(err) {
+		return status.Error(codes.Unavailable, err.Error())
 	}
 
 	// Default to internal error
