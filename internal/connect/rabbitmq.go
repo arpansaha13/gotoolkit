@@ -4,18 +4,16 @@ import (
 	"context"
 	"time"
 
+	"github.com/arpansaha13/gotoolkit/internal/logger"
 	"github.com/cenkalti/backoff/v5"
+	"github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-
-	"github.com/arpansaha13/gotoolkit/logger"
 )
 
-// ConnectPostgresWithBackoff connects to a PostgreSQL database with exponential backoff retry logic.
+// ConnectRabbitMQWithBackoff connects to RabbitMQ with exponential backoff retry logic.
 //
 // The connection operation is retried with exponential backoff until:
-// - Success (returns *gorm.DB)
+// - Success (returns *amqp091.Connection)
 // - MaxElapsedTime exhausted (default 15 minutes)
 // - Context cancelled
 // - maxRetries exceeded (if WithMaxRetries(n) is set)
@@ -25,25 +23,26 @@ import (
 //   - attempt > 3: Error level
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
-// The logger is retrieved from the context via logger.FromContext,
+// The logger is retrieved from the context via logger.LoggerFromContext,
 // falling back to the global logger if not found.
-func ConnectPostgresWithBackoff(ctx context.Context, dsn string, gormCfg *gorm.Config, opts ...BackoffOption) (*gorm.DB, error) {
+// Note: Channel creation is the caller's responsibility.
+func ConnectRabbitMQWithBackoff(ctx context.Context, url string, opts ...BackoffOption) (*amqp091.Connection, error) {
 	cfg := applyOptions(opts)
 
 	// Retrieve logger from context or use global
-	l := logger.FromContext(ctx)
+	l := logger.LoggerFromContext(ctx)
 
 	var attempt int
 
-	operation := func() (*gorm.DB, error) {
+	operation := func() (*amqp091.Connection, error) {
 		attempt++
 
-		db, err := gorm.Open(postgres.Open(dsn), gormCfg)
+		conn, err := amqp091.Dial(url)
 		if err != nil {
 			if attempt <= 3 {
-				l.Warn("failed to connect to postgres", zap.Int("attempt", attempt), zap.Error(err))
+				l.Warn("failed to connect to rabbitmq", zap.Int("attempt", attempt), zap.Error(err))
 			} else {
-				l.Error("failed to connect to postgres", zap.Int("attempt", attempt), zap.Error(err))
+				l.Error("failed to connect to rabbitmq", zap.Int("attempt", attempt), zap.Error(err))
 			}
 
 			if cfg.maxRetries > 0 && attempt >= cfg.maxRetries {
@@ -53,7 +52,7 @@ func ConnectPostgresWithBackoff(ctx context.Context, dsn string, gormCfg *gorm.C
 			return nil, err
 		}
 
-		return db, nil
+		return conn, nil
 	}
 
 	retryOpts := []backoff.RetryOption{
@@ -66,12 +65,12 @@ func ConnectPostgresWithBackoff(ctx context.Context, dsn string, gormCfg *gorm.C
 		retryOpts = append(retryOpts, backoff.WithMaxTries(uint(cfg.maxRetries)))
 	}
 
-	db, retryErr := backoff.Retry(ctx, operation, retryOpts...)
+	conn, retryErr := backoff.Retry(ctx, operation, retryOpts...)
 
 	if retryErr != nil {
-		l.Log(cfg.permanentErrorLogLevel, "permanently failed to connect to postgres", zap.Error(retryErr))
+		l.Log(cfg.permanentErrorLogLevel, "permanently failed to connect to rabbitmq", zap.Error(retryErr))
 		return nil, retryErr
 	}
 
-	return db, nil
+	return conn, nil
 }

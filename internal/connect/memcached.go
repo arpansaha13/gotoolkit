@@ -8,7 +8,7 @@ import (
 	"github.com/cenkalti/backoff/v5"
 	"go.uber.org/zap"
 
-	"github.com/arpansaha13/gotoolkit/logger"
+	"github.com/arpansaha13/gotoolkit/internal/logger"
 )
 
 // ConnectMemcachedWithBackoff creates a Memcached client and verifies connectivity
@@ -32,13 +32,13 @@ import (
 //   - attempt > 3: Error level
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
-// The logger is retrieved from the context via logger.FromContext,
+// The logger is retrieved from the context via logger.LoggerFromContext,
 // falling back to the global logger if not found.
 func ConnectMemcachedWithBackoff(ctx context.Context, address string, opts ...BackoffOption) (*memcache.Client, error) {
 	cfg := applyOptions(opts)
 
 	// Retrieve logger from context or use global
-	l := logger.FromContext(ctx)
+	l := logger.LoggerFromContext(ctx)
 
 	var attempt int
 

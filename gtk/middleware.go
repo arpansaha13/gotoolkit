@@ -1,4 +1,4 @@
-package gotoolkit
+package gtk
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/arpansaha13/gotoolkit/logger"
+	"github.com/arpansaha13/gotoolkit/internal/logger"
 )
 
 // ErrorResponse is the standard error response format
@@ -105,7 +105,7 @@ func HttpErrorMiddleware(next http.Handler) http.Handler {
 				err, ok := rec.(error)
 				if !ok {
 					// Non-error panic - treat as internal server error
-					lgr := logger.FromContext(r.Context())
+					lgr := logger.LoggerFromContext(r.Context())
 					lgr.Error("panic recovered (non-error)",
 						zap.Any("panic_value", rec),
 					)
@@ -120,7 +120,7 @@ func HttpErrorMiddleware(next http.Handler) http.Handler {
 				}
 
 				// Log the full error details for debugging
-				lgr := logger.FromContext(r.Context())
+				lgr := logger.LoggerFromContext(r.Context())
 				lgr.Error("error recovered",
 					zap.Error(err),
 					zap.Error(unwrappedErr),
@@ -138,7 +138,7 @@ func HttpErrorMiddleware(next http.Handler) http.Handler {
 
 // HttpWriteErrorWithContext writes an error response with logging to the client
 func HttpWriteErrorWithContext(w http.ResponseWriter, r *http.Request, err error) {
-	lgr := logger.FromContext(r.Context())
+	lgr := logger.LoggerFromContext(r.Context())
 	statusCode, message, code := errorToHTTP(err)
 	lgr.Info("error response", zap.String("code", code), zap.Int("status", statusCode), zap.Error(err))
 	writeErrorResponse(w, r, statusCode, message, code)
@@ -212,7 +212,7 @@ func GrpcRecoveryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				lgr := logger.FromContext(ctx)
+				lgr := logger.LoggerFromContext(ctx)
 				lgr.Error("panic recovered", zap.Any("panic_value", r), zap.String("method", info.FullMethod))
 				err = status.Error(codes.Internal, "internal server error")
 			}
@@ -228,7 +228,7 @@ func GrpcErrorInterceptor() grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 
 		if err != nil {
-			lgr := logger.FromContext(ctx)
+			lgr := logger.LoggerFromContext(ctx)
 			lgr.Error("grpc error", zap.String("method", info.FullMethod), zap.Error(err))
 			return nil, errorToGRPCError(err)
 		}

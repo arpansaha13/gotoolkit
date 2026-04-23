@@ -9,7 +9,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 
-	"github.com/arpansaha13/gotoolkit/logger"
+	"github.com/arpansaha13/gotoolkit/internal/logger"
 )
 
 // ConnectKafkaWithBackoff connects to Kafka with exponential backoff retry logic.
@@ -31,13 +31,13 @@ import (
 //   - attempt > 3: Error level
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
-// The logger is retrieved from the context via logger.FromContext,
+// The logger is retrieved from the context via logger.LoggerFromContext,
 // falling back to the global logger if not found.
 func ConnectKafkaWithBackoff(ctx context.Context, cfg kafka.WriterConfig, opts ...BackoffOption) (*kafka.Writer, error) {
 	backoffCfg := applyOptions(opts)
 
 	// Retrieve logger from context or use global
-	l := logger.FromContext(ctx)
+	l := logger.LoggerFromContext(ctx)
 
 	// Check if brokers are configured
 	if len(cfg.Brokers) == 0 {

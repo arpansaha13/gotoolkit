@@ -50,7 +50,7 @@ func HttpMiddleware(l *zap.Logger) func(http.Handler) http.Handler {
 			)
 
 			// Store logger in context for downstream handlers
-			ctx = WithContext(ctx, reqLogger)
+			ctx = LoggerWithContext(ctx, reqLogger)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -87,7 +87,7 @@ func GrpcInterceptor(l *zap.Logger) grpc.UnaryServerInterceptor {
 		}
 
 		reqLogger := l.WithOptions(zap.Fields(fields...))
-		ctx = WithContext(ctx, reqLogger)
+		ctx = LoggerWithContext(ctx, reqLogger)
 
 		resp, err := handler(ctx, req)
 
@@ -114,7 +114,7 @@ func GrpcInterceptor(l *zap.Logger) grpc.UnaryServerInterceptor {
 			logFields = append(logFields, zap.String("error_details", errorDetails))
 		}
 
-		FromContext(ctx).Info("grpc call completed", logFields...)
+		LoggerFromContext(ctx).Info("grpc call completed", logFields...)
 
 		return resp, err
 	}

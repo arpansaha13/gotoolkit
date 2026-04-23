@@ -7,8 +7,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// InitLogger creates a zap.Logger with JSON output to stdout.
-func InitLogger(level zapcore.Level) (*zap.Logger, error) {
+// NewZapLogger creates a zap.Logger with JSON output to stdout.
+func NewZapLogger(level zapcore.Level) (*zap.Logger, error) {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "timestamp",
 		LevelKey:       "level",
