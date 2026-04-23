@@ -86,7 +86,7 @@ func HttpRecoveryMiddleware(next http.Handler) http.Handler {
 				log.Printf("panic recovered by HttpRecoveryMiddleware: %v, type: %T", rec, rec)
 
 				// Return generic error response
-				writeErrorResponse(w, http.StatusInternalServerError, "Something went wrong!", "INTERNAL_ERROR")
+				writeErrorResponse(w, r, http.StatusInternalServerError, "Something went wrong!", "INTERNAL_ERROR")
 			}
 		}()
 
@@ -109,7 +109,7 @@ func HttpErrorMiddleware(next http.Handler) http.Handler {
 					lgr.Error("panic recovered (non-error)",
 						zap.Any("panic_value", rec),
 					)
-					writeErrorResponse(w, http.StatusInternalServerError, "Something went wrong!", "INTERNAL_ERROR")
+					writeErrorResponse(w, r, http.StatusInternalServerError, "Something went wrong!", "INTERNAL_ERROR")
 					return
 				}
 
@@ -128,7 +128,7 @@ func HttpErrorMiddleware(next http.Handler) http.Handler {
 
 				// Map error to HTTP response
 				statusCode, message, code := errorToHTTP(unwrappedErr)
-				writeErrorResponse(w, statusCode, message, code)
+				writeErrorResponse(w, r, statusCode, message, code)
 			}
 		}()
 
@@ -137,17 +137,24 @@ func HttpErrorMiddleware(next http.Handler) http.Handler {
 }
 
 // HttpWriteErrorWithContext writes an error response with logging to the client
-func HttpWriteErrorWithContext(w http.ResponseWriter, ctx context.Context, err error) {
-	lgr := logger.FromContext(ctx)
+func HttpWriteErrorWithContext(w http.ResponseWriter, r *http.Request, err error) {
+	lgr := logger.FromContext(r.Context())
 	statusCode, message, code := errorToHTTP(err)
 	lgr.Info("error response", zap.String("code", code), zap.Int("status", statusCode), zap.Error(err))
-	writeErrorResponse(w, statusCode, message, code)
+	writeErrorResponse(w, r, statusCode, message, code)
 }
 
-// writeErrorResponse writes an error response to the client
-func writeErrorResponse(w http.ResponseWriter, statusCode int, message, code string) {
-	w.WriteHeader(statusCode)
+// writeErrorResponse writes an error response to the client.
+// It sets the X-Trace-ID header (when available), Content-Type, and status code
+// before writing the body. Headers must be set before WriteHeader is called.
+func writeErrorResponse(w http.ResponseWriter, r *http.Request, statusCode int, message, code string) {
+	// Add trace-id header if available
+	span := trace.SpanFromContext(r.Context())
+	if span != nil && span.SpanContext().IsValid() {
+		w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
+	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(ErrorResponse{
 		Message: message,
 		Code:    code,
