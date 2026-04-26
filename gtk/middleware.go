@@ -27,8 +27,9 @@ type ErrorResponse struct {
 // StatusCode defaults to 200 if not set or set to 0.
 // Body is the response data to be JSON-encoded.
 type ControllerResponse struct {
-	StatusCode int `json:"-"`
-	Body       any `json:"-"`
+	StatusCode int               `json:"-"`
+	Body       any               `json:"-"`
+	Headers    map[string]string `json:"-"`
 }
 
 // ControllerFunc is the common signature for all HTTP controllers.
@@ -56,8 +57,15 @@ func HttpControllerAdaptor(c ControllerFunc) http.HandlerFunc {
 			w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
 		}
 
-		// Set content type
-		w.Header().Set("Content-Type", "application/json")
+		// Set headers
+		for k, v := range resp.Headers {
+			w.Header().Set(k, v)
+		}
+
+		// Set content type if not already set
+		if w.Header().Get("Content-Type") == "" {
+			w.Header().Set("Content-Type", "application/json")
+		}
 
 		// Set status code (default to 200 if not specified or 0)
 		statusCode := resp.StatusCode
