@@ -51,12 +51,6 @@ func HttpControllerAdaptor(c ControllerFunc) http.HandlerFunc {
 			panic(err)
 		}
 
-		// Add trace-id header if available
-		span := trace.SpanFromContext(r.Context())
-		if span != nil && span.SpanContext().IsValid() {
-			w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
-		}
-
 		// Set headers
 		for k, v := range resp.Headers {
 			w.Header().Set(k, v)
@@ -82,6 +76,19 @@ func HttpControllerAdaptor(c ControllerFunc) http.HandlerFunc {
 // =======================================================
 // ============== HTTP Middleware Functions ==============
 // =======================================================
+
+// HttpTraceMiddleware extracts the OpenTelemetry trace ID from the request context
+// and sets it in the response headers as X-Trace-ID.
+// It should be registered early in the middleware chain (after otelhttp).
+func HttpTraceMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		span := trace.SpanFromContext(r.Context())
+		if span != nil && span.SpanContext().IsValid() {
+			w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // HttpRecoveryMiddleware is a minimal recovery middleware that catches any
 // uncaught panics and returns a generic 500 error response.
@@ -153,14 +160,9 @@ func HttpWriteErrorWithContext(w http.ResponseWriter, r *http.Request, err error
 }
 
 // writeErrorResponse writes an error response to the client.
-// It sets the X-Trace-ID header (when available), Content-Type, and status code
+// It sets the Content-Type and status code
 // before writing the body. Headers must be set before WriteHeader is called.
 func writeErrorResponse(w http.ResponseWriter, r *http.Request, statusCode int, message, code string) {
-	// Add trace-id header if available
-	span := trace.SpanFromContext(r.Context())
-	if span != nil && span.SpanContext().IsValid() {
-		w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
-	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(ErrorResponse{
