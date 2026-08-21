@@ -9,7 +9,7 @@ import (
 )
 
 // ReconnectConfig holds configuration for ConnectionManager reconnection behavior.
-// 
+//
 // IMPORTANT: ConnectionManager does NOT implement backoff logic. Backoff should be
 // implemented in connectFn (e.g., using gotoolkit.ConnectRabbitMQWithBackoff).
 // ConnectionManager only repeats failed connection attempts with a fixed ReconnectInterval.
@@ -34,6 +34,7 @@ var DefaultReconnectConfig = ReconnectConfig{
 // Usage:
 //
 //	mgr := NewConnectionManager(
+//	    ctx, // process lifetime; cancel to stop reconnects
 //	    gotoolkit.DefaultReconnectConfig,
 //	    logger,
 //	    func(ctx context.Context) error {
@@ -54,9 +55,10 @@ var DefaultReconnectConfig = ReconnectConfig{
 //	        service.ClearConnection()
 //	    },
 //	)
-//	mgr.Start(ctx)
+//	mgr.Start()
 //	defer mgr.Stop()
 type ConnectionManager struct {
+	ctx          context.Context
 	config       ReconnectConfig
 	logger       *zap.Logger
 	connectFn    func(ctx context.Context) error // User-supplied connect logic (should implement backoff)
@@ -69,7 +71,8 @@ type ConnectionManager struct {
 	isRunning bool
 }
 
-// NewConnectionManager creates a new ConnectionManager with the given configuration.
+// NewConnectionManager creates a new ConnectionManager with the given lifetime
+// context and configuration. ctx should outlive Start; cancel it to stop reconnects.
 //
 // IMPORTANT: ConnectionManager does NOT implement backoff logic. The connectFn is expected
 // to implement its own backoff (e.g., using gotoolkit.ConnectRabbitMQWithBackoff).
@@ -82,11 +85,15 @@ type ConnectionManager struct {
 //
 // disconnectFn is called during cleanup to release any resources.
 func NewConnectionManager(
+	ctx context.Context,
 	config ReconnectConfig,
 	logger *zap.Logger,
 	connectFn func(ctx context.Context) error,
 	disconnectFn func(),
 ) *ConnectionManager {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if config.ConnectTimeout == 0 {
 		config.ConnectTimeout = DefaultReconnectConfig.ConnectTimeout
 	}
@@ -95,6 +102,7 @@ func NewConnectionManager(
 	}
 
 	return &ConnectionManager{
+		ctx:          ctx,
 		config:       config,
 		logger:       logger,
 		connectFn:    connectFn,
@@ -104,10 +112,18 @@ func NewConnectionManager(
 	}
 }
 
+// Context returns the process-lifetime context passed to NewConnectionManager.
+func (m *ConnectionManager) Context() context.Context {
+	if m == nil || m.ctx == nil {
+		return context.Background()
+	}
+	return m.ctx
+}
+
 // Start begins the connection manager's main loop. It should be called after
 // creating the ConnectionManager. The first connection attempt is triggered immediately.
-// Returns an error if already running.
-func (m *ConnectionManager) Start(ctx context.Context) error {
+// Returns an error if already running. Uses the context passed to NewConnectionManager.
+func (m *ConnectionManager) Start() error {
 	m.mu.Lock()
 	if m.isRunning {
 		m.mu.Unlock()
@@ -123,7 +139,7 @@ func (m *ConnectionManager) Start(ctx context.Context) error {
 	}
 
 	// Start the reconnection loop
-	go m.run(ctx)
+	go m.run(m.ctx)
 
 	return nil
 }

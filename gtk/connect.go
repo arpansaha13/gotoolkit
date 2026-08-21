@@ -55,13 +55,15 @@ var DefaultReconnectConfig = connect.DefaultReconnectConfig
 type ConnectionManager = connect.ConnectionManager
 
 // NewConnectionManager creates a new resilient connection manager.
+// ctx is the process-lifetime context used by Start and reconnects.
 func NewConnectionManager(
+	ctx context.Context,
 	config ReconnectConfig,
 	logger *zap.Logger,
 	connectFn func(ctx context.Context) error,
 	disconnectFn func(),
 ) *ConnectionManager {
-	return connect.NewConnectionManager(config, logger, connectFn, disconnectFn)
+	return connect.NewConnectionManager(ctx, config, logger, connectFn, disconnectFn)
 }
 
 // MemcachedClient is a thread-safe wrapper around memcache.Client for managed reconnections.
