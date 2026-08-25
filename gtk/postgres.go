@@ -6,9 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/zap"
 )
 
 // PostgresClientConfig holds settings used by Start. Zero MaxOpenConns leaves pgxpool default.
@@ -59,7 +61,7 @@ func (p *PostgresClient) Start() error {
 		ctx, cancel = context.WithTimeout(ctx, p.cfg.StartTimeout)
 		defer cancel()
 	}
-	pool, err := connectPool(ctx, p.cfg.DatabaseURL, p.cfg.MaxOpenConns)
+	pool, err := p.connectPoolWithBackoff(ctx)
 	if err != nil {
 		return fmt.Errorf("connect postgres: %w", err)
 	}
@@ -176,41 +178,53 @@ func (p *PostgresClient) Transaction(ctx context.Context, fn func(tx Tx) error) 
 	return tx.Commit(ctx)
 }
 
-func connectPool(ctx context.Context, databaseURL string, maxOpen int) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(databaseURL)
+func (p *PostgresClient) connectPoolWithBackoff(ctx context.Context, opts ...BackoffOption) (*pgxpool.Pool, error) {
+	cfg := applyOptions(opts)
+	l := LoggerFromContext(ctx)
+
+	poolCfg, err := pgxpool.ParseConfig(p.cfg.DatabaseURL)
 	if err != nil {
 		return nil, err
 	}
-	if maxOpen > 0 {
-		cfg.MaxConns = int32(maxOpen)
+	if p.cfg.MaxOpenConns > 0 {
+		poolCfg.MaxConns = int32(p.cfg.MaxOpenConns)
 	}
 
-	var last error
-	backoff := 200 * time.Millisecond
-	for {
-		pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	var attempt int
+	operation := func() (*pgxpool.Pool, error) {
+		attempt++
+		pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 		if err == nil {
-			if pingErr := pool.Ping(ctx); pingErr == nil {
+			if err = pool.Ping(ctx); err == nil {
 				return pool, nil
-			} else {
-				pool.Close()
-				last = pingErr
 			}
+			pool.Close()
+		}
+
+		if attempt <= 3 {
+			l.Warn("failed to connect to postgres", zap.Int("attempt", attempt), zap.Error(err))
 		} else {
-			last = err
+			l.Error("failed to connect to postgres", zap.Int("attempt", attempt), zap.Error(err))
 		}
-		select {
-		case <-ctx.Done():
-			if last != nil {
-				return nil, last
-			}
-			return nil, ctx.Err()
-		case <-time.After(backoff):
-			if backoff < 2*time.Second {
-				backoff *= 2
-			}
+		if cfg.maxRetries > 0 && attempt >= cfg.maxRetries {
+			return nil, backoff.Permanent(err)
 		}
+		return nil, err
 	}
+
+	retryOpts := []backoff.RetryOption{
+		backoff.WithNotify(func(err error, d time.Duration) {}),
+	}
+	if cfg.maxRetries > 0 {
+		retryOpts = append(retryOpts, backoff.WithMaxTries(uint(cfg.maxRetries)))
+	}
+
+	pool, retryErr := backoff.Retry(ctx, operation, retryOpts...)
+	if retryErr != nil {
+		l.Log(cfg.permanentErrorLogLevel, "permanently failed to connect to postgres", zap.Error(retryErr))
+		return nil, retryErr
+	}
+	return pool, nil
 }
 
 type disconnectedQuerier struct{}
