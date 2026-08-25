@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
-	gormlogger "gorm.io/gorm/logger"
 )
 
 // NewZapLogger creates a zap.Logger with JSON output to stdout.
@@ -39,9 +38,4 @@ func HttpLoggerMiddleware(l *zap.Logger) func(http.Handler) http.Handler {
 // GrpcLoggerInterceptor returns a gRPC unary server interceptor that logs with high observability.
 func GrpcLoggerInterceptor(l *zap.Logger) grpc.UnaryServerInterceptor {
 	return logger.GrpcInterceptor(l)
-}
-
-// NewGormLogger creates a GormLogger backed by l.
-func NewGormLogger(l *zap.Logger, level gormlogger.LogLevel) gormlogger.Interface {
-	return logger.NewGormLogger(l, level)
 }

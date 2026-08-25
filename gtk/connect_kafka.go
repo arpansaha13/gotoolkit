@@ -1,4 +1,4 @@
-package connect
+package gtk
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"github.com/cenkalti/backoff/v5"
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
-
-	"github.com/arpansaha13/gotoolkit/internal/logger"
 )
 
 // ConnectKafkaWithBackoff connects to Kafka with exponential backoff retry logic.
@@ -31,15 +29,13 @@ import (
 //   - attempt > 3: Error level
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
-// The logger is retrieved from the context via logger.LoggerFromContext,
+// The logger is retrieved from the context via LoggerFromContext,
 // falling back to the global logger if not found.
 func ConnectKafkaWithBackoff(ctx context.Context, cfg kafka.WriterConfig, opts ...BackoffOption) (*kafka.Writer, error) {
 	backoffCfg := applyOptions(opts)
 
-	// Retrieve logger from context or use global
-	l := logger.LoggerFromContext(ctx)
+	l := LoggerFromContext(ctx)
 
-	// Check if brokers are configured
 	if len(cfg.Brokers) == 0 {
 		err := errors.New("kafka brokers not configured")
 		l.Log(backoffCfg.permanentErrorLogLevel, "failed to connect to kafka", zap.Error(err))
@@ -51,7 +47,6 @@ func ConnectKafkaWithBackoff(ctx context.Context, cfg kafka.WriterConfig, opts .
 	operation := func() (*kafka.Writer, error) {
 		attempt++
 
-		// Verify connectivity by dialing the first broker
 		dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		conn, err := kafka.DialContext(dialCtx, "tcp", cfg.Brokers[0])
 		cancel()
@@ -70,18 +65,14 @@ func ConnectKafkaWithBackoff(ctx context.Context, cfg kafka.WriterConfig, opts .
 			return nil, err
 		}
 
-		// Close the verification connection immediately
 		conn.Close()
 
-		// If verification succeeded, create and return the writer
 		writer := kafka.NewWriter(cfg)
 		return writer, nil
 	}
 
 	retryOpts := []backoff.RetryOption{
-		backoff.WithNotify(func(err error, d time.Duration) {
-			// Notification on retry — no-op here
-		}),
+		backoff.WithNotify(func(err error, d time.Duration) {}),
 	}
 
 	if backoffCfg.maxRetries > 0 {

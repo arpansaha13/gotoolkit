@@ -1,4 +1,4 @@
-package connect
+package gtk
 
 import (
 	"context"
@@ -7,8 +7,6 @@ import (
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/cenkalti/backoff/v5"
 	"go.uber.org/zap"
-
-	"github.com/arpansaha13/gotoolkit/internal/logger"
 )
 
 // ConnectMemcachedWithBackoff creates a Memcached client and verifies connectivity
@@ -32,13 +30,12 @@ import (
 //   - attempt > 3: Error level
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
-// The logger is retrieved from the context via logger.LoggerFromContext,
+// The logger is retrieved from the context via LoggerFromContext,
 // falling back to the global logger if not found.
 func ConnectMemcachedWithBackoff(ctx context.Context, address string, opts ...BackoffOption) (*memcache.Client, error) {
 	cfg := applyOptions(opts)
 
-	// Retrieve logger from context or use global
-	l := logger.LoggerFromContext(ctx)
+	l := LoggerFromContext(ctx)
 
 	var attempt int
 
@@ -47,7 +44,6 @@ func ConnectMemcachedWithBackoff(ctx context.Context, address string, opts ...Ba
 
 		client := memcache.New(address)
 
-		// Probe connectivity: a cache miss means the server is reachable.
 		_, err := client.Get("__health_probe__")
 		if err == nil || err == memcache.ErrCacheMiss {
 			return client, nil
@@ -67,9 +63,7 @@ func ConnectMemcachedWithBackoff(ctx context.Context, address string, opts ...Ba
 	}
 
 	retryOpts := []backoff.RetryOption{
-		backoff.WithNotify(func(err error, d time.Duration) {
-			// Notification on retry — no-op here
-		}),
+		backoff.WithNotify(func(err error, d time.Duration) {}),
 	}
 
 	if cfg.maxRetries > 0 {

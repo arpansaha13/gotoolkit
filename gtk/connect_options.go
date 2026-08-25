@@ -1,4 +1,4 @@
-package connect
+package gtk
 
 import "go.uber.org/zap/zapcore"
 

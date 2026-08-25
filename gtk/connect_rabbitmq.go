@@ -1,10 +1,9 @@
-package connect
+package gtk
 
 import (
 	"context"
 	"time"
 
-	"github.com/arpansaha13/gotoolkit/internal/logger"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
@@ -23,14 +22,13 @@ import (
 //   - attempt > 3: Error level
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
-// The logger is retrieved from the context via logger.LoggerFromContext,
+// The logger is retrieved from the context via LoggerFromContext,
 // falling back to the global logger if not found.
 // Note: Channel creation is the caller's responsibility.
 func ConnectRabbitMQWithBackoff(ctx context.Context, url string, opts ...BackoffOption) (*amqp091.Connection, error) {
 	cfg := applyOptions(opts)
 
-	// Retrieve logger from context or use global
-	l := logger.LoggerFromContext(ctx)
+	l := LoggerFromContext(ctx)
 
 	var attempt int
 
@@ -56,9 +54,7 @@ func ConnectRabbitMQWithBackoff(ctx context.Context, url string, opts ...Backoff
 	}
 
 	retryOpts := []backoff.RetryOption{
-		backoff.WithNotify(func(err error, d time.Duration) {
-			// Notification on retry — no-op here
-		}),
+		backoff.WithNotify(func(err error, d time.Duration) {}),
 	}
 
 	if cfg.maxRetries > 0 {

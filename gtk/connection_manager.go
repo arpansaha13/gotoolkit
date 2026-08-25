@@ -1,4 +1,4 @@
-package connect
+package gtk
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 // ReconnectConfig holds configuration for ConnectionManager reconnection behavior.
 //
 // IMPORTANT: ConnectionManager does NOT implement backoff logic. Backoff should be
-// implemented in connectFn (e.g., using gotoolkit.ConnectRabbitMQWithBackoff).
+// implemented in connectFn (e.g., using ConnectRabbitMQWithBackoff).
 // ConnectionManager only repeats failed connection attempts with a fixed ReconnectInterval.
 type ReconnectConfig struct {
 	ConnectTimeout    time.Duration
@@ -28,35 +28,8 @@ var DefaultReconnectConfig = ReconnectConfig{
 // It monitors connection state and automatically attempts to reconnect on failure.
 //
 // IMPORTANT: ConnectionManager does NOT implement backoff logic. It is the responsibility
-// of connectFn to implement backoff (using gotoolkit.ConnectRabbitMQWithBackoff or similar).
+// of connectFn to implement backoff (using ConnectRabbitMQWithBackoff or similar).
 // ConnectionManager only retries with a fixed ReconnectInterval between attempts.
-//
-// Usage:
-//
-//	mgr := NewConnectionManager(
-//	    ctx, // process lifetime; cancel to stop reconnects
-//	    gotoolkit.DefaultReconnectConfig,
-//	    logger,
-//	    func(ctx context.Context) error {
-//	        // connectFn should implement backoff internally!
-//	        conn, err := gotoolkit.ConnectRabbitMQWithBackoff(ctx, url)
-//	        if err != nil {
-//	            return err
-//	        }
-//	        service.SetConnection(conn)
-//	        // Monitor for disconnection
-//	        go func() {
-//	            <-conn.NotifyClose(make(chan error, 1))
-//	            mgr.Signal()
-//	        }()
-//	        return nil
-//	    },
-//	    func() {
-//	        service.ClearConnection()
-//	    },
-//	)
-//	mgr.Start()
-//	defer mgr.Stop()
 type ConnectionManager struct {
 	ctx          context.Context
 	config       ReconnectConfig
@@ -75,7 +48,7 @@ type ConnectionManager struct {
 // context and configuration. ctx should outlive Start; cancel it to stop reconnects.
 //
 // IMPORTANT: ConnectionManager does NOT implement backoff logic. The connectFn is expected
-// to implement its own backoff (e.g., using gotoolkit.ConnectRabbitMQWithBackoff).
+// to implement its own backoff (e.g., using ConnectRabbitMQWithBackoff).
 // ConnectionManager only retries failed connection attempts using a fixed ReconnectInterval.
 //
 // connectFn is called with a timeout context. It should:
