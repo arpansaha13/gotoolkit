@@ -5,6 +5,7 @@ go 1.25.6
 require (
 	github.com/bradfitz/gomemcache v0.0.0-20250403215159-8d39553ac7cf
 	github.com/cenkalti/backoff/v5 v5.0.3
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/segmentio/kafka-go v0.4.50
 	go.opentelemetry.io/otel/trace v1.43.0
@@ -19,7 +20,6 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.8.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
