@@ -242,3 +242,5 @@ func (disconnectedQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
 type errRow struct{ err error }
 
 func (r errRow) Scan(...any) error { return r.err }
+
+var _ ManagedClient = (*PostgresClient)(nil)
