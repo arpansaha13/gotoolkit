@@ -11,56 +11,85 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// MemcachedClientConfig holds settings used by Start.
-// Empty Address makes Start a no-op (optional cache).
-// Zero StartTimeout means Start uses the caller's context as-is.
-type MemcachedClientConfig struct {
-	Address      string
-	StartTimeout time.Duration
+// MemcachedOption configures NewMemcachedClient.
+type MemcachedOption interface {
+	applyMemcached(*memcachedConfig)
+}
+
+type memcachedConfig struct {
+	shared       sharedConfig
+	startTimeout time.Duration
+}
+
+type memcachedOptionFunc func(*memcachedConfig)
+
+func (f memcachedOptionFunc) applyMemcached(c *memcachedConfig) { f(c) }
+
+// WithStartTimeout bounds Start connect/backoff. Zero or omitted uses the
+// constructor context as-is.
+func WithStartTimeout(d time.Duration) MemcachedOption {
+	return memcachedOptionFunc(func(c *memcachedConfig) {
+		if d > 0 {
+			c.startTimeout = d
+		}
+	})
+}
+
+func applyMemcachedOptions(opts []MemcachedOption) memcachedConfig {
+	cfg := memcachedConfig{shared: defaultShared()}
+	for _, opt := range opts {
+		if opt != nil {
+			opt.applyMemcached(&cfg)
+		}
+	}
+	finalizeShared(&cfg.shared)
+	return cfg
 }
 
 // MemcachedClient is a thread-safe wrapper around memcache.Client.
 // Construct with NewMemcachedClient (unconnected), then Start.
 type MemcachedClient struct {
-	mu     sync.RWMutex
-	client *memcache.Client
-	cfg    MemcachedClientConfig
-	ctx    context.Context
-	log    *zap.Logger
+	mu           sync.RWMutex
+	client       *memcache.Client
+	address      string
+	startTimeout time.Duration
+	ctx          context.Context
+	log          *zap.Logger
+	circuit      Circuit
 }
 
 // NewMemcachedClient creates an unconnected client. Call Start to connect.
 // ctx is the parent for connect/backoff in Start. Nil means context.Background.
-func NewMemcachedClient(ctx context.Context, cfg MemcachedClientConfig, log *zap.Logger) *MemcachedClient {
+func NewMemcachedClient(ctx context.Context, address string, opts ...MemcachedOption) *MemcachedClient {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	o := applyMemcachedOptions(opts)
+	log := o.shared.logger
 	if log == nil {
 		log = LoggerFromContext(ctx)
 	}
-	return &MemcachedClient{ctx: ctx, cfg: cfg, log: log}
+	return &MemcachedClient{
+		ctx:          ctx,
+		address:      address,
+		startTimeout: o.startTimeout,
+		log:          log,
+		circuit:      o.shared.circuit,
+	}
 }
 
-// Enabled reports whether an address was configured.
-func (m *MemcachedClient) Enabled() bool {
-	return m != nil && m.cfg.Address != ""
-}
-
-// Start connects with backoff and stores the handle. No-op if Address is empty.
+// Start connects with backoff and stores the handle.
 func (m *MemcachedClient) Start() error {
 	if m == nil {
 		return fmt.Errorf("memcached client is nil")
 	}
-	if m.cfg.Address == "" {
-		if m.log != nil {
-			m.log.Info("memcached not configured, skipping start")
-		}
-		return nil
+	if m.address == "" {
+		return fmt.Errorf("memcached address is required")
 	}
 	ctx := m.ctx
-	if m.cfg.StartTimeout > 0 {
+	if m.startTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, m.cfg.StartTimeout)
+		ctx, cancel = context.WithTimeout(ctx, m.startTimeout)
 		defer cancel()
 	}
 	if err := m.connect(ctx); err != nil {
@@ -85,12 +114,12 @@ func (m *MemcachedClient) connect(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to memcached: %w", err)
 	}
 	m.SetClient(client)
-	m.log.Info("memcached connected", zap.String("address", m.cfg.Address))
+	m.log.Info("memcached connected", zap.String("address", m.address))
 	return nil
 }
 
 func (m *MemcachedClient) connectWithBackoff(ctx context.Context) (*memcache.Client, error) {
-	return connectMemcachedWithBackoff(ctx, m.cfg.Address, WithPermanentErrorLogLevel(zapcore.ErrorLevel))
+	return connectMemcachedWithBackoff(ctx, m.address, WithPermanentErrorLogLevel(zapcore.ErrorLevel))
 }
 
 // SetClient updates the underlying memcached client.
@@ -115,29 +144,35 @@ func (m *MemcachedClient) GetClient() *memcache.Client {
 
 // Get retrieves an item from memcached (delegates to underlying client).
 func (m *MemcachedClient) Get(key string) (*memcache.Item, error) {
-	client := m.GetClient()
-	if client == nil {
-		return nil, memcache.ErrCacheMiss
-	}
-	return client.Get(key)
+	return execVal(m.circuit, func() (*memcache.Item, error) {
+		client := m.GetClient()
+		if client == nil {
+			return nil, memcache.ErrCacheMiss
+		}
+		return client.Get(key)
+	})
 }
 
 // Set stores an item in memcached (delegates to underlying client).
 func (m *MemcachedClient) Set(item *memcache.Item) error {
-	client := m.GetClient()
-	if client == nil {
-		return nil
-	}
-	return client.Set(item)
+	return execErr(m.circuit, func() error {
+		client := m.GetClient()
+		if client == nil {
+			return nil
+		}
+		return client.Set(item)
+	})
 }
 
 // Delete removes an item from memcached (delegates to underlying client).
 func (m *MemcachedClient) Delete(key string) error {
-	client := m.GetClient()
-	if client == nil {
-		return nil
-	}
-	return client.Delete(key)
+	return execErr(m.circuit, func() error {
+		client := m.GetClient()
+		if client == nil {
+			return nil
+		}
+		return client.Delete(key)
+	})
 }
 
 var _ ManagedClient = (*MemcachedClient)(nil)

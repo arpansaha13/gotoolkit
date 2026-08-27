@@ -31,20 +31,42 @@ type Querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+// PostgresOption configures NewPostgresClient.
+type PostgresOption interface {
+	applyPostgres(*postgresConfig)
+}
+
+type postgresConfig struct {
+	shared sharedConfig
+}
+
+func applyPostgresOptions(opts []PostgresOption) postgresConfig {
+	cfg := postgresConfig{shared: defaultShared()}
+	for _, opt := range opts {
+		if opt != nil {
+			opt.applyPostgres(&cfg)
+		}
+	}
+	finalizeShared(&cfg.shared)
+	return cfg
+}
+
 // PostgresClient is a thread-safe wrapper around *pgxpool.Pool.
 // Construct with NewPostgresClient (unconnected), then Start. Repos hold this
 // type so they stay valid when the handle is set after connect.
 type PostgresClient struct {
-	mu   sync.RWMutex
-	pool *pgxpool.Pool
-	cfg  PostgresClientConfig
-	ctx  context.Context
+	mu      sync.RWMutex
+	pool    *pgxpool.Pool
+	cfg     PostgresClientConfig
+	ctx     context.Context
+	circuit Circuit
 }
 
 // NewPostgresClient creates an unconnected client. Call Start to open the DB.
 // ctx is the parent for connect/backoff in Start. Nil means context.Background.
-func NewPostgresClient(ctx context.Context, cfg PostgresClientConfig) *PostgresClient {
-	return &PostgresClient{ctx: ctx, cfg: cfg}
+func NewPostgresClient(ctx context.Context, cfg PostgresClientConfig, opts ...PostgresOption) *PostgresClient {
+	o := applyPostgresOptions(opts)
+	return &PostgresClient{ctx: ctx, cfg: cfg, circuit: o.shared.circuit}
 }
 
 // Start connects with backoff and stores the handle. Safe to call once.
@@ -106,11 +128,13 @@ func (p *PostgresClient) Pool() *pgxpool.Pool {
 
 // Ping checks that the pool is connected and accepting queries.
 func (p *PostgresClient) Ping(ctx context.Context) error {
-	pool := p.Pool()
-	if pool == nil {
-		return &NotConnectedError{}
-	}
-	return pool.Ping(ctx)
+	return execErr(p.circuit, func() error {
+		pool := p.Pool()
+		if pool == nil {
+			return &NotConnectedError{}
+		}
+		return pool.Ping(ctx)
+	})
 }
 
 // Q returns tx when non-nil, otherwise the pool.
@@ -127,38 +151,49 @@ func (p *PostgresClient) Q(tx Tx) Querier {
 
 // Exec runs a statement on the pool.
 func (p *PostgresClient) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
-	pool := p.Pool()
-	if pool == nil {
-		return pgconn.CommandTag{}, &NotConnectedError{}
-	}
-	return pool.Exec(ctx, sql, arguments...)
+	return execVal(p.circuit, func() (pgconn.CommandTag, error) {
+		pool := p.Pool()
+		if pool == nil {
+			return pgconn.CommandTag{}, &NotConnectedError{}
+		}
+		return pool.Exec(ctx, sql, arguments...)
+	})
 }
 
 // Query runs a query on the pool.
 func (p *PostgresClient) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	pool := p.Pool()
-	if pool == nil {
-		return nil, &NotConnectedError{}
-	}
-	return pool.Query(ctx, sql, args...)
+	return execVal(p.circuit, func() (pgx.Rows, error) {
+		pool := p.Pool()
+		if pool == nil {
+			return nil, &NotConnectedError{}
+		}
+		return pool.Query(ctx, sql, args...)
+	})
 }
 
 // QueryRow runs a single-row query on the pool.
 func (p *PostgresClient) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	pool := p.Pool()
-	if pool == nil {
-		return errRow{err: &NotConnectedError{}}
+	return circuitRow{
+		circuit: p.circuit,
+		scan: func(dest ...any) error {
+			pool := p.Pool()
+			if pool == nil {
+				return &NotConnectedError{}
+			}
+			return pool.QueryRow(ctx, sql, args...).Scan(dest...)
+		},
 	}
-	return pool.QueryRow(ctx, sql, args...)
 }
 
 // Begin starts a transaction on the pool.
 func (p *PostgresClient) Begin(ctx context.Context) (pgx.Tx, error) {
-	pool := p.Pool()
-	if pool == nil {
-		return nil, &NotConnectedError{}
-	}
-	return pool.Begin(ctx)
+	return execVal(p.circuit, func() (pgx.Tx, error) {
+		pool := p.Pool()
+		if pool == nil {
+			return nil, &NotConnectedError{}
+		}
+		return pool.Begin(ctx)
+	})
 }
 
 // Transaction runs fn inside a database transaction.
@@ -242,5 +277,16 @@ func (disconnectedQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
 type errRow struct{ err error }
 
 func (r errRow) Scan(...any) error { return r.err }
+
+type circuitRow struct {
+	circuit Circuit
+	scan    func(dest ...any) error
+}
+
+func (r circuitRow) Scan(dest ...any) error {
+	return execErr(r.circuit, func() error {
+		return r.scan(dest...)
+	})
+}
 
 var _ ManagedClient = (*PostgresClient)(nil)
