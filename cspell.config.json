@@ -2,6 +2,7 @@
   "words": [
     "amqp",
     "arpansaha",
+    "errgroup",
     "gotoolkit",
     "pgxpool"
   ]
