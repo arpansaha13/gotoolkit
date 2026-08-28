@@ -27,8 +27,6 @@ type rabbitMQConfig struct {
 	connectTimeout    time.Duration
 	reconnectInterval time.Duration
 	topology          RabbitMQTopology
-	onConnect         func() error
-	onDisconnect      func()
 }
 
 type rabbitMQOptionFunc func(*rabbitMQConfig)
@@ -62,24 +60,6 @@ func WithTopology(t RabbitMQTopology) RabbitMQOption {
 	})
 }
 
-// WithOnConnect runs after the channel is open and topology is applied.
-func WithOnConnect(fn func() error) RabbitMQOption {
-	return rabbitMQOptionFunc(func(c *rabbitMQConfig) {
-		if fn != nil {
-			c.onConnect = fn
-		}
-	})
-}
-
-// WithOnDisconnect runs before the channel and connection are closed.
-func WithOnDisconnect(fn func()) RabbitMQOption {
-	return rabbitMQOptionFunc(func(c *rabbitMQConfig) {
-		if fn != nil {
-			c.onDisconnect = fn
-		}
-	})
-}
-
 func applyRabbitMQOptions(opts []RabbitMQOption) rabbitMQConfig {
 	cfg := rabbitMQConfig{shared: defaultShared()}
 	for _, opt := range opts {
@@ -109,8 +89,8 @@ type RabbitMQClient struct {
 	connectTimeout    time.Duration
 	reconnectInterval time.Duration
 	topology          RabbitMQTopology
-	onConnect         func() error
-	onDisconnect      func()
+	Connected         *EventBusTopic[struct{}]
+	Disconnected      *EventBusTopic[struct{}]
 	ctx               context.Context
 	log               *zap.Logger
 	circuit           Circuit
@@ -137,8 +117,8 @@ func NewRabbitMQClient(ctx context.Context, url string, opts ...RabbitMQOption) 
 		connectTimeout:    o.connectTimeout,
 		reconnectInterval: o.reconnectInterval,
 		topology:          o.topology,
-		onConnect:         o.onConnect,
-		onDisconnect:      o.onDisconnect,
+		Connected:         NewEventBusTopic[struct{}](ctx),
+		Disconnected:      NewEventBusTopic[struct{}](ctx),
 		log:               log,
 		circuit:           o.shared.circuit,
 	}
@@ -208,15 +188,8 @@ func (r *RabbitMQClient) reconnectLoop() {
 			continue
 		}
 
-		if r.onConnect != nil {
-			if err := r.onConnect(); err != nil {
-				r.log.Error("rabbitmq on-connect failed", zap.Error(err))
-				r.closeChannel()
-				if !r.wait(r.reconnectInterval) {
-					return
-				}
-				continue
-			}
+		if r.Connected != nil {
+			r.Connected.Publish(struct{}{})
 		}
 
 		r.mu.RLock()
@@ -307,8 +280,8 @@ func (r *RabbitMQClient) watchClose(notify <-chan *amqp091.Error, closed chan st
 }
 
 func (r *RabbitMQClient) closeChannel() {
-	if r.onDisconnect != nil {
-		r.onDisconnect()
+	if r.Disconnected != nil {
+		r.Disconnected.Publish(struct{}{})
 	}
 	r.mu.Lock()
 	ch := r.channel
