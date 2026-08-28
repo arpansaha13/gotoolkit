@@ -107,10 +107,6 @@ func NewRabbitMQClient(ctx context.Context, url string, opts ...RabbitMQOption) 
 		ctx = context.Background()
 	}
 	o := applyRabbitMQOptions(opts)
-	log := o.shared.logger
-	if log == nil {
-		log = LoggerFromContext(ctx)
-	}
 	return &RabbitMQClient{
 		ctx:               ctx,
 		url:               url,
@@ -119,7 +115,7 @@ func NewRabbitMQClient(ctx context.Context, url string, opts ...RabbitMQOption) 
 		topology:          o.topology,
 		Connected:         NewEventBusTopic[struct{}](ctx),
 		Disconnected:      NewEventBusTopic[struct{}](ctx),
-		log:               log,
+		log:               o.shared.logger,
 		circuit:           o.shared.circuit,
 	}
 }
@@ -316,7 +312,10 @@ func (r *RabbitMQClient) connAlive() bool {
 }
 
 func (r *RabbitMQClient) connectWithBackoff(ctx context.Context) (*amqp091.Connection, error) {
-	return connectRabbitMQWithBackoff(ctx, r.url, WithPermanentErrorLogLevel(zapcore.ErrorLevel))
+	return connectRabbitMQWithBackoff(ctx, r.url,
+		WithPermanentErrorLogLevel(zapcore.ErrorLevel),
+		WithBackoffLogger(r.log),
+	)
 }
 
 func (r *RabbitMQClient) stopped() bool {

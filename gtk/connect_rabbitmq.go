@@ -22,13 +22,12 @@ import (
 //   - attempt > 3: Error level
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
-// The logger is retrieved from the context via LoggerFromContext,
-// falling back to the global logger if not found.
+// The logger comes from WithBackoffLogger. Omitted uses zap.NewNop.
 // Note: Channel creation is the caller's responsibility.
 func connectRabbitMQWithBackoff(ctx context.Context, url string, opts ...BackoffOption) (*amqp091.Connection, error) {
 	cfg := applyOptions(opts)
 
-	l := LoggerFromContext(ctx)
+	l := cfg.logger
 
 	var attempt int
 

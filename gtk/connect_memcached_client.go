@@ -65,15 +65,11 @@ func NewMemcachedClient(ctx context.Context, address string, opts ...MemcachedOp
 		ctx = context.Background()
 	}
 	o := applyMemcachedOptions(opts)
-	log := o.shared.logger
-	if log == nil {
-		log = LoggerFromContext(ctx)
-	}
 	return &MemcachedClient{
 		ctx:          ctx,
 		address:      address,
 		startTimeout: o.startTimeout,
-		log:          log,
+		log:          o.shared.logger,
 		circuit:      o.shared.circuit,
 	}
 }
@@ -119,7 +115,10 @@ func (m *MemcachedClient) connect(ctx context.Context) error {
 }
 
 func (m *MemcachedClient) connectWithBackoff(ctx context.Context) (*memcache.Client, error) {
-	return connectMemcachedWithBackoff(ctx, m.address, WithPermanentErrorLogLevel(zapcore.ErrorLevel))
+	return connectMemcachedWithBackoff(ctx, m.address,
+		WithPermanentErrorLogLevel(zapcore.ErrorLevel),
+		WithBackoffLogger(m.log),
+	)
 }
 
 // SetClient updates the underlying memcached client.

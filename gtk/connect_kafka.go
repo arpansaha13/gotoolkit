@@ -29,12 +29,11 @@ import (
 //   - attempt > 3: Error level
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
-// The logger is retrieved from the context via LoggerFromContext,
-// falling back to the global logger if not found.
+// The logger comes from WithBackoffLogger. Omitted uses zap.NewNop.
 func ConnectKafkaWithBackoff(ctx context.Context, cfg kafka.WriterConfig, opts ...BackoffOption) (*kafka.Writer, error) {
 	backoffCfg := applyOptions(opts)
 
-	l := LoggerFromContext(ctx)
+	l := backoffCfg.logger
 
 	if len(cfg.Brokers) == 0 {
 		err := errors.New("kafka brokers not configured")

@@ -60,13 +60,14 @@ type PostgresClient struct {
 	cfg     PostgresClientConfig
 	ctx     context.Context
 	circuit Circuit
+	log     *zap.Logger
 }
 
 // NewPostgresClient creates an unconnected client. Call Start to open the DB.
 // ctx is the parent for connect/backoff in Start. Nil means context.Background.
 func NewPostgresClient(ctx context.Context, cfg PostgresClientConfig, opts ...PostgresOption) *PostgresClient {
 	o := applyPostgresOptions(opts)
-	return &PostgresClient{ctx: ctx, cfg: cfg, circuit: o.shared.circuit}
+	return &PostgresClient{ctx: ctx, cfg: cfg, circuit: o.shared.circuit, log: o.shared.logger}
 }
 
 // Start connects with backoff and stores the handle. Safe to call once.
@@ -214,8 +215,9 @@ func (p *PostgresClient) Transaction(ctx context.Context, fn func(tx Tx) error) 
 }
 
 func (p *PostgresClient) connectPoolWithBackoff(ctx context.Context, opts ...BackoffOption) (*pgxpool.Pool, error) {
+	opts = append([]BackoffOption{WithBackoffLogger(p.log)}, opts...)
 	cfg := applyOptions(opts)
-	l := LoggerFromContext(ctx)
+	l := cfg.logger
 
 	poolCfg, err := pgxpool.ParseConfig(p.cfg.DatabaseURL)
 	if err != nil {

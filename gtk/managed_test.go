@@ -78,6 +78,9 @@ func TestSharedOptionsApplyPerClient(t *testing.T) {
 	if pc.shared.circuit != stub {
 		t.Fatalf("postgres circuit not applied")
 	}
+	if pc.shared.logger == nil {
+		t.Fatal("omitted logger is nil, want Nop")
+	}
 }
 
 type stubCircuit struct{}

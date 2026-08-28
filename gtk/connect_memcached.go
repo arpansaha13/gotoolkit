@@ -30,12 +30,11 @@ import (
 //   - attempt > 3: Error level
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
-// The logger is retrieved from the context via LoggerFromContext,
-// falling back to the global logger if not found.
+// The logger comes from WithBackoffLogger. Omitted uses zap.NewNop.
 func connectMemcachedWithBackoff(ctx context.Context, address string, opts ...BackoffOption) (*memcache.Client, error) {
 	cfg := applyOptions(opts)
 
-	l := LoggerFromContext(ctx)
+	l := cfg.logger
 
 	var attempt int
 

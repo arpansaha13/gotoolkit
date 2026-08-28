@@ -1,6 +1,9 @@
 package gtk
 
-import "go.uber.org/zap/zapcore"
+import (
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+)
 
 // BackoffOption is a functional option for configuring backoff behavior
 type BackoffOption func(*backoffConfig)
@@ -9,6 +12,7 @@ type BackoffOption func(*backoffConfig)
 type backoffConfig struct {
 	maxRetries             int           // 0 = unlimited (bounded by MaxElapsedTime)
 	permanentErrorLogLevel zapcore.Level // default: zapcore.FatalLevel
+	logger                 *zap.Logger
 }
 
 // defaultBackoffConfig returns the default backoff configuration
@@ -16,6 +20,7 @@ func defaultBackoffConfig() *backoffConfig {
 	return &backoffConfig{
 		maxRetries:             0, // unlimited by retry count (bounded by MaxElapsedTime)
 		permanentErrorLogLevel: zapcore.FatalLevel,
+		logger:                 zap.NewNop(),
 	}
 }
 
@@ -37,11 +42,24 @@ func WithPermanentErrorLogLevel(level zapcore.Level) BackoffOption {
 	}
 }
 
+// WithBackoffLogger sets the logger used by connect-with-backoff helpers.
+// Nil is ignored. Omitted uses zap.NewNop.
+func WithBackoffLogger(log *zap.Logger) BackoffOption {
+	return func(cfg *backoffConfig) {
+		if log != nil {
+			cfg.logger = log
+		}
+	}
+}
+
 // applyOptions applies all options to create a final backoffConfig
 func applyOptions(opts []BackoffOption) *backoffConfig {
 	cfg := defaultBackoffConfig()
 	for _, opt := range opts {
 		opt(cfg)
+	}
+	if cfg.logger == nil {
+		cfg.logger = zap.NewNop()
 	}
 	return cfg
 }

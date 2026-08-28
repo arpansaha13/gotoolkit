@@ -41,7 +41,7 @@ func WithCircuit(c Circuit) sharedOption {
 	return sharedOption{circuit: c}
 }
 
-// WithLogger sets the client logger. Nil is ignored. Omitted uses LoggerFromContext.
+// WithLogger sets the client logger. Nil is ignored. Omitted uses zap.NewNop.
 func WithLogger(log *zap.Logger) sharedOption {
 	return sharedOption{logger: log}
 }
@@ -60,12 +60,15 @@ func (o sharedOption) applyRabbitMQ(c *rabbitMQConfig)   { o.applyTo(&c.shared) 
 func (o sharedOption) applyPostgres(c *postgresConfig)   { o.applyTo(&c.shared) }
 
 func defaultShared() sharedConfig {
-	return sharedConfig{circuit: NoopCircuit{}}
+	return sharedConfig{circuit: NoopCircuit{}, logger: zap.NewNop()}
 }
 
 func finalizeShared(s *sharedConfig) {
 	if s.circuit == nil {
 		s.circuit = NoopCircuit{}
+	}
+	if s.logger == nil {
+		s.logger = zap.NewNop()
 	}
 }
 
