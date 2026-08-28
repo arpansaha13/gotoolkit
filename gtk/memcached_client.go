@@ -8,43 +8,7 @@ import (
 
 	"github.com/bradfitz/gomemcache/memcache"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
-
-// MemcachedOption configures NewMemcachedClient.
-type MemcachedOption interface {
-	applyMemcached(*memcachedConfig)
-}
-
-type memcachedConfig struct {
-	shared       sharedConfig
-	startTimeout time.Duration
-}
-
-type memcachedOptionFunc func(*memcachedConfig)
-
-func (f memcachedOptionFunc) applyMemcached(c *memcachedConfig) { f(c) }
-
-// WithStartTimeout bounds Start connect/backoff. Zero or omitted uses the
-// constructor context as-is.
-func WithStartTimeout(d time.Duration) MemcachedOption {
-	return memcachedOptionFunc(func(c *memcachedConfig) {
-		if d > 0 {
-			c.startTimeout = d
-		}
-	})
-}
-
-func applyMemcachedOptions(opts []MemcachedOption) memcachedConfig {
-	cfg := memcachedConfig{shared: defaultShared()}
-	for _, opt := range opts {
-		if opt != nil {
-			opt.applyMemcached(&cfg)
-		}
-	}
-	finalizeShared(&cfg.shared)
-	return cfg
-}
 
 // MemcachedClient is a thread-safe wrapper around memcache.Client.
 // Construct with NewMemcachedClient (unconnected), then Start.
@@ -56,6 +20,7 @@ type MemcachedClient struct {
 	ctx          context.Context
 	log          *zap.Logger
 	circuit      Circuit
+	connectOpts  []BackoffOption
 }
 
 // NewMemcachedClient creates an unconnected client. Call Start to connect.
@@ -71,6 +36,7 @@ func NewMemcachedClient(ctx context.Context, address string, opts ...MemcachedOp
 		startTimeout: o.startTimeout,
 		log:          o.shared.logger,
 		circuit:      o.shared.circuit,
+		connectOpts:  o.connectOpts,
 	}
 }
 
@@ -88,7 +54,7 @@ func (m *MemcachedClient) Start() error {
 		ctx, cancel = context.WithTimeout(ctx, m.startTimeout)
 		defer cancel()
 	}
-	if err := m.connect(ctx); err != nil {
+	if err := m.dial(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -104,7 +70,7 @@ func (m *MemcachedClient) Stop() error {
 	return nil
 }
 
-func (m *MemcachedClient) connect(ctx context.Context) error {
+func (m *MemcachedClient) dial(ctx context.Context) error {
 	client, err := m.connectWithBackoff(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to memcached: %w", err)
@@ -115,10 +81,7 @@ func (m *MemcachedClient) connect(ctx context.Context) error {
 }
 
 func (m *MemcachedClient) connectWithBackoff(ctx context.Context) (*memcache.Client, error) {
-	return connectMemcachedWithBackoff(ctx, m.address,
-		WithPermanentErrorLogLevel(zapcore.ErrorLevel),
-		WithBackoffLogger(m.log),
-	)
+	return connectMemcachedWithBackoff(ctx, m.address, defaultConnectBackoff(m.log, m.connectOpts...)...)
 }
 
 // SetClient updates the underlying memcached client.

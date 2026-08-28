@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,43 +30,30 @@ type Querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// PostgresOption configures NewPostgresClient.
-type PostgresOption interface {
-	applyPostgres(*postgresConfig)
-}
-
-type postgresConfig struct {
-	shared sharedConfig
-}
-
-func applyPostgresOptions(opts []PostgresOption) postgresConfig {
-	cfg := postgresConfig{shared: defaultShared()}
-	for _, opt := range opts {
-		if opt != nil {
-			opt.applyPostgres(&cfg)
-		}
-	}
-	finalizeShared(&cfg.shared)
-	return cfg
-}
-
 // PostgresClient is a thread-safe wrapper around *pgxpool.Pool.
 // Construct with NewPostgresClient (unconnected), then Start. Repos hold this
 // type so they stay valid when the handle is set after connect.
 type PostgresClient struct {
-	mu      sync.RWMutex
-	pool    *pgxpool.Pool
-	cfg     PostgresClientConfig
-	ctx     context.Context
-	circuit Circuit
-	log     *zap.Logger
+	mu          sync.RWMutex
+	pool        *pgxpool.Pool
+	cfg         PostgresClientConfig
+	ctx         context.Context
+	circuit     Circuit
+	log         *zap.Logger
+	connectOpts []BackoffOption
 }
 
 // NewPostgresClient creates an unconnected client. Call Start to open the DB.
 // ctx is the parent for connect/backoff in Start. Nil means context.Background.
 func NewPostgresClient(ctx context.Context, cfg PostgresClientConfig, opts ...PostgresOption) *PostgresClient {
 	o := applyPostgresOptions(opts)
-	return &PostgresClient{ctx: ctx, cfg: cfg, circuit: o.shared.circuit, log: o.shared.logger}
+	return &PostgresClient{
+		ctx:         ctx,
+		cfg:         cfg,
+		circuit:     o.shared.circuit,
+		log:         o.shared.logger,
+		connectOpts: o.connectOpts,
+	}
 }
 
 // Start connects with backoff and stores the handle. Safe to call once.
@@ -84,7 +70,7 @@ func (p *PostgresClient) Start() error {
 		ctx, cancel = context.WithTimeout(ctx, p.cfg.StartTimeout)
 		defer cancel()
 	}
-	pool, err := p.connectPoolWithBackoff(ctx)
+	pool, err := p.connectWithBackoff(ctx)
 	if err != nil {
 		return fmt.Errorf("connect postgres: %w", err)
 	}
@@ -214,54 +200,8 @@ func (p *PostgresClient) Transaction(ctx context.Context, fn func(tx Tx) error) 
 	return tx.Commit(ctx)
 }
 
-func (p *PostgresClient) connectPoolWithBackoff(ctx context.Context, opts ...BackoffOption) (*pgxpool.Pool, error) {
-	opts = append([]BackoffOption{WithBackoffLogger(p.log)}, opts...)
-	cfg := applyOptions(opts)
-	l := cfg.logger
-
-	poolCfg, err := pgxpool.ParseConfig(p.cfg.DatabaseURL)
-	if err != nil {
-		return nil, err
-	}
-	if p.cfg.MaxOpenConns > 0 {
-		poolCfg.MaxConns = int32(p.cfg.MaxOpenConns)
-	}
-
-	var attempt int
-	operation := func() (*pgxpool.Pool, error) {
-		attempt++
-		pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
-		if err == nil {
-			if err = pool.Ping(ctx); err == nil {
-				return pool, nil
-			}
-			pool.Close()
-		}
-
-		if attempt <= 3 {
-			l.Warn("failed to connect to postgres", zap.Int("attempt", attempt), zap.Error(err))
-		} else {
-			l.Error("failed to connect to postgres", zap.Int("attempt", attempt), zap.Error(err))
-		}
-		if cfg.maxRetries > 0 && attempt >= cfg.maxRetries {
-			return nil, backoff.Permanent(err)
-		}
-		return nil, err
-	}
-
-	retryOpts := []backoff.RetryOption{
-		backoff.WithNotify(func(err error, d time.Duration) {}),
-	}
-	if cfg.maxRetries > 0 {
-		retryOpts = append(retryOpts, backoff.WithMaxTries(uint(cfg.maxRetries)))
-	}
-
-	pool, retryErr := backoff.Retry(ctx, operation, retryOpts...)
-	if retryErr != nil {
-		l.Log(cfg.permanentErrorLogLevel, "permanently failed to connect to postgres", zap.Error(retryErr))
-		return nil, retryErr
-	}
-	return pool, nil
+func (p *PostgresClient) connectWithBackoff(ctx context.Context) (*pgxpool.Pool, error) {
+	return connectPostgresWithBackoff(ctx, p.cfg, defaultConnectBackoff(p.log, p.connectOpts...)...)
 }
 
 type disconnectedQuerier struct{}

@@ -9,73 +9,7 @@ import (
 
 	"github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
-
-const (
-	defaultRabbitMQConnectTimeout    = 15 * time.Second
-	defaultRabbitMQReconnectInterval = 500 * time.Millisecond
-)
-
-// RabbitMQOption configures NewRabbitMQClient.
-type RabbitMQOption interface {
-	applyRabbitMQ(*rabbitMQConfig)
-}
-
-type rabbitMQConfig struct {
-	shared            sharedConfig
-	connectTimeout    time.Duration
-	reconnectInterval time.Duration
-	topology          RabbitMQTopology
-}
-
-type rabbitMQOptionFunc func(*rabbitMQConfig)
-
-func (f rabbitMQOptionFunc) applyRabbitMQ(c *rabbitMQConfig) { f(c) }
-
-// WithConnectTimeout sets the per-dial budget in the reconnect loop.
-// Zero or omitted uses 15s.
-func WithConnectTimeout(d time.Duration) RabbitMQOption {
-	return rabbitMQOptionFunc(func(c *rabbitMQConfig) {
-		if d > 0 {
-			c.connectTimeout = d
-		}
-	})
-}
-
-// WithReconnectInterval sets the delay between reconnect attempts.
-// Zero or omitted uses 500ms.
-func WithReconnectInterval(d time.Duration) RabbitMQOption {
-	return rabbitMQOptionFunc(func(c *rabbitMQConfig) {
-		if d > 0 {
-			c.reconnectInterval = d
-		}
-	})
-}
-
-// WithTopology declares exchanges, queues, and bindings on every new channel.
-func WithTopology(t RabbitMQTopology) RabbitMQOption {
-	return rabbitMQOptionFunc(func(c *rabbitMQConfig) {
-		c.topology = t
-	})
-}
-
-func applyRabbitMQOptions(opts []RabbitMQOption) rabbitMQConfig {
-	cfg := rabbitMQConfig{shared: defaultShared()}
-	for _, opt := range opts {
-		if opt != nil {
-			opt.applyRabbitMQ(&cfg)
-		}
-	}
-	finalizeShared(&cfg.shared)
-	if cfg.connectTimeout == 0 {
-		cfg.connectTimeout = defaultRabbitMQConnectTimeout
-	}
-	if cfg.reconnectInterval == 0 {
-		cfg.reconnectInterval = defaultRabbitMQReconnectInterval
-	}
-	return cfg
-}
 
 // RabbitMQClient is a thread-safe wrapper around an AMQP connection and channel.
 // Construct with NewRabbitMQClient (unconnected), then Start.
@@ -94,6 +28,7 @@ type RabbitMQClient struct {
 	ctx               context.Context
 	log               *zap.Logger
 	circuit           Circuit
+	connectOpts       []BackoffOption
 	done              chan struct{}
 	connClosed        chan struct{}
 	chanClosed        chan struct{}
@@ -117,6 +52,7 @@ func NewRabbitMQClient(ctx context.Context, url string, opts ...RabbitMQOption) 
 		Disconnected:      NewEventBusTopic[struct{}](ctx),
 		log:               o.shared.logger,
 		circuit:           o.shared.circuit,
+		connectOpts:       o.connectOpts,
 	}
 }
 
@@ -312,10 +248,7 @@ func (r *RabbitMQClient) connAlive() bool {
 }
 
 func (r *RabbitMQClient) connectWithBackoff(ctx context.Context) (*amqp091.Connection, error) {
-	return connectRabbitMQWithBackoff(ctx, r.url,
-		WithPermanentErrorLogLevel(zapcore.ErrorLevel),
-		WithBackoffLogger(r.log),
-	)
+	return connectRabbitMQWithBackoff(ctx, r.url, defaultConnectBackoff(r.log, r.connectOpts...)...)
 }
 
 func (r *RabbitMQClient) stopped() bool {

@@ -63,3 +63,13 @@ func applyOptions(opts []BackoffOption) *backoffConfig {
 	}
 	return cfg
 }
+
+// defaultConnectBackoff is what managed clients pass when the app does not
+// supply With*Backoff options. Extra opts (from With*Backoff) override these.
+func defaultConnectBackoff(log *zap.Logger, extra ...BackoffOption) []BackoffOption {
+	out := []BackoffOption{
+		WithPermanentErrorLogLevel(zapcore.ErrorLevel),
+		WithBackoffLogger(log),
+	}
+	return append(out, extra...)
+}
