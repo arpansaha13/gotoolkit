@@ -82,6 +82,22 @@ func TestSharedOptionsApplyPerClient(t *testing.T) {
 	if pc.shared.logger == nil {
 		t.Fatal("omitted logger is nil, want Nop")
 	}
+
+	nc := applyNATSOptions([]NATSOption{
+		WithCircuit(stub),
+		WithLogger(log),
+	})
+	if nc.shared.circuit != stub {
+		t.Fatalf("nats circuit not applied")
+	}
+	if nc.shared.logger != log {
+		t.Fatalf("nats logger not applied")
+	}
+
+	ncNil := applyNATSOptions([]NATSOption{WithCircuit(nil)})
+	if _, ok := ncNil.shared.circuit.(NoopCircuit); !ok {
+		t.Fatalf("nil WithCircuit = %T, want NoopCircuit", ncNil.shared.circuit)
+	}
 }
 
 func TestWithConnectOptionsStored(t *testing.T) {

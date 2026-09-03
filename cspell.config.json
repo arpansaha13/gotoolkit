@@ -4,6 +4,7 @@
     "arpansaha",
     "errgroup",
     "gotoolkit",
+    "nats",
     "pgxpool"
   ]
 }

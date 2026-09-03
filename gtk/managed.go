@@ -58,6 +58,7 @@ func (o sharedOption) applyTo(s *sharedConfig) {
 func (o sharedOption) applyMemcached(c *memcachedConfig) { o.applyTo(&c.shared) }
 func (o sharedOption) applyRabbitMQ(c *rabbitMQConfig)   { o.applyTo(&c.shared) }
 func (o sharedOption) applyPostgres(c *postgresConfig)   { o.applyTo(&c.shared) }
+func (o sharedOption) applyNATS(c *natsConfig)           { o.applyTo(&c.shared) }
 
 func defaultShared() sharedConfig {
 	return sharedConfig{circuit: NoopCircuit{}, logger: zap.NewNop()}
