@@ -2,12 +2,10 @@ package gtk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/arpansaha13/gotoolkit/internal/logger"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"google.golang.org/grpc"
 )
 
 // NewZapLogger creates a zap.Logger with JSON output to stdout.
@@ -28,14 +26,4 @@ func LoggerWithContext(ctx context.Context, l *zap.Logger) context.Context {
 // LoggerWithFields adds fields to the *zap.Logger stored in ctx.
 func LoggerWithFields(ctx context.Context, fields ...zap.Field) context.Context {
 	return logger.LoggerWithFields(ctx, fields...)
-}
-
-// HttpLoggerMiddleware returns an HTTP middleware that injects a logger into the request context.
-func HttpLoggerMiddleware(l *zap.Logger) func(http.Handler) http.Handler {
-	return logger.HttpMiddleware(l)
-}
-
-// GrpcLoggerInterceptor returns a gRPC unary server interceptor that logs with high observability.
-func GrpcLoggerInterceptor(l *zap.Logger) grpc.UnaryServerInterceptor {
-	return logger.GrpcInterceptor(l)
 }
