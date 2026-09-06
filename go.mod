@@ -5,7 +5,6 @@ go 1.25.6
 require (
 	github.com/bradfitz/gomemcache v0.0.0-20260422231931-4d751bb6e37c
 	github.com/cenkalti/backoff/v5 v5.0.3
-	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/nats-io/nats.go v1.53.1
 	github.com/rabbitmq/amqp091-go v1.12.0

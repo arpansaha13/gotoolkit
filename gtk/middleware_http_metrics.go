@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -17,17 +16,12 @@ const httpMetricsMeter = "github.com/arpansaha13/gotoolkit/gtk/http"
 // HttpRouteFunc returns a low-cardinality route label for r (for example a path template).
 type HttpRouteFunc func(r *http.Request) string
 
-// MuxRouteTemplate is the gorilla/mux path template for r, or "unknown".
-func MuxRouteTemplate(r *http.Request) string {
-	route := mux.CurrentRoute(r)
-	if route == nil {
+// RoutePattern is the net/http ServeMux pattern that matched r, or "unknown".
+func RoutePattern(r *http.Request) string {
+	if r.Pattern == "" {
 		return "unknown"
 	}
-	tpl, err := route.GetPathTemplate()
-	if err != nil || tpl == "" {
-		return "unknown"
-	}
-	return tpl
+	return r.Pattern
 }
 
 // HttpMetricsMiddleware records request count, duration, and in-flight requests.

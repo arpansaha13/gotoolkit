@@ -27,6 +27,14 @@ type ControllerResponse struct {
 // On success, they return a ControllerResponse with the desired status code and body.
 type ControllerFunc func(w http.ResponseWriter, r *http.Request) (*ControllerResponse, error)
 
+// Chain wraps h with mws. First middleware is outermost.
+func Chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler {
+	for i := len(mws) - 1; i >= 0; i-- {
+		h = mws[i](h)
+	}
+	return h
+}
+
 // HttpControllerAdaptor converts a ControllerFunc into a standard http.HandlerFunc.
 // It calls the controller and handles the response:
 // - On error, it panics with the error (to be handled by HttpErrorMiddleware)
