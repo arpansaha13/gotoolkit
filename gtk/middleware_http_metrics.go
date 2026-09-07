@@ -26,6 +26,16 @@ func RoutePattern(r *http.Request) string {
 
 // HttpMetricsMiddleware records request count, duration, and in-flight requests.
 // Instruments bind to the global MeterProvider on the first request.
+//
+// Count and duration are recorded in a defer, so they still fire if next panics.
+// Place HttpRecoveryMiddleware both before and after this middleware:
+//   - after: recovers handler/inner-MW panics, writes 500 through the status
+//     recorder, and lets this middleware record status=500
+//   - before: recovers a panic inside this middleware itself (init, route
+//     label, or the metrics defer)
+//
+// A single recovery only on one side either misses panic requests in metrics
+// or lets a metrics panic escape.
 func HttpMetricsMiddleware(routeOf HttpRouteFunc) func(http.Handler) http.Handler {
 	if routeOf == nil {
 		routeOf = func(*http.Request) string { return "unknown" }
@@ -73,18 +83,20 @@ func (m *httpMetrics) wrap(next http.Handler) http.Handler {
 			defer m.inflight.Add(r.Context(), -1, attrs)
 		}
 		start := time.Now()
+		defer func() {
+			statusAttrs := metric.WithAttributes(
+				attribute.String("method", r.Method),
+				attribute.String("route", m.routeOf(r)),
+				attribute.String("status", strconv.Itoa(rec.status)),
+			)
+			if m.requests != nil {
+				m.requests.Add(r.Context(), 1, statusAttrs)
+			}
+			if m.duration != nil {
+				m.duration.Record(r.Context(), time.Since(start).Seconds(), statusAttrs)
+			}
+		}()
 		next.ServeHTTP(rec, r)
-		statusAttrs := metric.WithAttributes(
-			attribute.String("method", r.Method),
-			attribute.String("route", m.routeOf(r)),
-			attribute.String("status", strconv.Itoa(rec.status)),
-		)
-		if m.requests != nil {
-			m.requests.Add(r.Context(), 1, statusAttrs)
-		}
-		if m.duration != nil {
-			m.duration.Record(r.Context(), time.Since(start).Seconds(), statusAttrs)
-		}
 	})
 }
 
