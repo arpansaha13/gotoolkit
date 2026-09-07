@@ -3,6 +3,7 @@ package gtk
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,10 +17,15 @@ const httpMetricsMeter = "github.com/arpansaha13/gotoolkit/gtk/http"
 // HttpRouteFunc returns a low-cardinality route label for r (for example a path template).
 type HttpRouteFunc func(r *http.Request) string
 
-// RoutePattern is the net/http ServeMux pattern that matched r, or "unknown".
+// RoutePattern is the path template from the ServeMux pattern that matched r,
+// or "unknown". The HTTP method is stripped so it can live only on the
+// "method" metric attribute (r.Method).
 func RoutePattern(r *http.Request) string {
 	if r.Pattern == "" {
 		return "unknown"
+	}
+	if _, path, ok := strings.Cut(r.Pattern, " "); ok && path != "" {
+		return path
 	}
 	return r.Pattern
 }
@@ -74,13 +80,9 @@ func (m *httpMetrics) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.once.Do(m.init)
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		attrs := metric.WithAttributes(
-			attribute.String("method", r.Method),
-			attribute.String("route", m.routeOf(r)),
-		)
 		if m.inflight != nil {
-			m.inflight.Add(r.Context(), 1, attrs)
-			defer m.inflight.Add(r.Context(), -1, attrs)
+			m.inflight.Add(r.Context(), 1)
+			defer m.inflight.Add(r.Context(), -1)
 		}
 		start := time.Now()
 		defer func() {

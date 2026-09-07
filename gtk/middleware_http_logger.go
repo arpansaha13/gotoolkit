@@ -13,6 +13,8 @@ import (
 // Note: This middleware must run AFTER any OTel HTTP instrumentation (e.g., otelhttp)
 // so that span context is already present. It must run BEFORE Auth middleware so that
 // Auth can add user_id to the logger context after validation.
+// Place it before HttpMetricsMiddleware: WithContext clones the request, and
+// ServeMux writes Pattern onto that clone. Metrics must hold the clone.
 func HttpLoggerMiddleware(l *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

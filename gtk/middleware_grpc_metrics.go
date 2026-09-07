@@ -95,10 +95,9 @@ func (m *grpcMetrics) unary(
 	handler grpc.UnaryHandler,
 ) (resp any, err error) {
 	m.once.Do(m.init)
-	attrs := metric.WithAttributes(attribute.String("method", info.FullMethod))
 	if m.inflight != nil {
-		m.inflight.Add(ctx, 1, attrs)
-		defer m.inflight.Add(ctx, -1, attrs)
+		m.inflight.Add(ctx, 1)
+		defer m.inflight.Add(ctx, -1)
 	}
 	start := time.Now()
 	defer func() { m.record(ctx, info.FullMethod, start, err) }()
@@ -113,10 +112,9 @@ func (m *grpcMetrics) stream(
 ) (err error) {
 	m.once.Do(m.init)
 	ctx := ss.Context()
-	attrs := metric.WithAttributes(attribute.String("method", info.FullMethod))
 	if m.inflight != nil {
-		m.inflight.Add(ctx, 1, attrs)
-		defer m.inflight.Add(ctx, -1, attrs)
+		m.inflight.Add(ctx, 1)
+		defer m.inflight.Add(ctx, -1)
 	}
 	start := time.Now()
 	defer func() { m.record(ctx, info.FullMethod, start, err) }()

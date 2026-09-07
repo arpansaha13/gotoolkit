@@ -20,8 +20,8 @@ func TestRoutePatternFromServeMux(t *testing.T) {
 		got = RoutePattern(r)
 	})
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/users/42", nil))
-	if got != "GET /users/{id}" {
-		t.Fatalf("RoutePattern() = %q, want GET /users/{id}", got)
+	if got != "/users/{id}" {
+		t.Fatalf("RoutePattern() = %q, want /users/{id}", got)
 	}
 }
 
