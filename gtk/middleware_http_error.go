@@ -10,9 +10,27 @@ import (
 	"go.uber.org/zap"
 )
 
+// ControllerErrorDecorator maps a controller error to a ControllerResponse.
+// Controllers still must not write to the ResponseWriter.
+func ControllerErrorDecorator(c ControllerFunc) ControllerFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*ControllerResponse, error) {
+		resp, err := c(w, r)
+		if err == nil {
+			return resp, nil
+		}
+		statusCode, message, code := errorToHTTP(err)
+		lgr := logger.LoggerFromContext(r.Context())
+		lgr.Info("error response", zap.String("code", code), zap.Int("status", statusCode), zap.Error(err))
+		return &ControllerResponse{
+			StatusCode: statusCode,
+			Body:       ErrorResponse{Message: message, Code: code},
+		}, nil
+	}
+}
+
 // HttpErrorMiddleware recovers from panics thrown by handlers and converts
-// domain errors to HTTP responses. It should be placed after HttpRecoveryMiddleware
-// and LoggingMiddleware in the middleware chain.
+// domain errors to HTTP responses. Controller errors go through
+// ControllerErrorDecorator instead; this remains for unexpected panics.
 func HttpErrorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
