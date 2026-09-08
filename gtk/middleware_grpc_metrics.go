@@ -17,6 +17,9 @@ const grpcMetricsMeter = "github.com/arpansaha13/gotoolkit/gtk/grpc"
 
 // GrpcMetricsInterceptor records unary RPC count, duration, and in-flight requests.
 // Instruments bind to the global MeterProvider on the first request.
+// Count and duration keep the request span only for server-error codes
+// (Unknown, DeadlineExceeded, Internal, Unavailable, DataLoss) or
+// duration >= 1s so Prometheus exemplars point at slow or failed traces.
 //
 // Count and duration are recorded in a defer, so they still fire if the handler
 // panics. Place GrpcRecoveryInterceptor both before and after this interceptor:
@@ -76,15 +79,18 @@ func grpcCode(err error) codes.Code {
 }
 
 func (m *grpcMetrics) record(ctx context.Context, method string, start time.Time, err error) {
+	elapsed := time.Since(start)
+	code := grpcCode(err)
 	statusAttrs := metric.WithAttributes(
 		attribute.String("method", method),
-		attribute.String("status", grpcCode(err).String()),
+		attribute.String("status", code.String()),
 	)
+	recordCtx := metricsExemplarContext(ctx, grpcAttachExemplar(code, elapsed))
 	if m.requests != nil {
-		m.requests.Add(ctx, 1, statusAttrs)
+		m.requests.Add(recordCtx, 1, statusAttrs)
 	}
 	if m.duration != nil {
-		m.duration.Record(ctx, time.Since(start).Seconds(), statusAttrs)
+		m.duration.Record(recordCtx, elapsed.Seconds(), statusAttrs)
 	}
 }
 

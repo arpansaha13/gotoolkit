@@ -32,6 +32,8 @@ func RoutePattern(r *http.Request) string {
 
 // HttpMetricsMiddleware records request count, duration, and in-flight requests.
 // Instruments bind to the global MeterProvider on the first request.
+// Count and duration keep the request span only for status >= 500 or
+// duration >= 1s so Prometheus exemplars point at slow or failed traces.
 //
 // Count and duration are recorded in a defer, so they still fire if next panics.
 // Place HttpRecoveryMiddleware both before and after this middleware:
@@ -86,16 +88,18 @@ func (m *httpMetrics) wrap(next http.Handler) http.Handler {
 		}
 		start := time.Now()
 		defer func() {
+			elapsed := time.Since(start)
 			statusAttrs := metric.WithAttributes(
 				attribute.String("method", r.Method),
 				attribute.String("route", m.routeOf(r)),
 				attribute.String("status", strconv.Itoa(rec.status)),
 			)
+			recordCtx := metricsExemplarContext(r.Context(), httpAttachExemplar(rec.status, elapsed))
 			if m.requests != nil {
-				m.requests.Add(r.Context(), 1, statusAttrs)
+				m.requests.Add(recordCtx, 1, statusAttrs)
 			}
 			if m.duration != nil {
-				m.duration.Record(r.Context(), time.Since(start).Seconds(), statusAttrs)
+				m.duration.Record(recordCtx, elapsed.Seconds(), statusAttrs)
 			}
 		}()
 		next.ServeHTTP(rec, r)
