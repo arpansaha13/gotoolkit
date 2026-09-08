@@ -1,11 +1,14 @@
 package gtk
 
-import "net/http"
+import (
+	"net/http"
+	"slices"
+)
 
-// Chain wraps h with mws. First middleware is outermost.
-func Chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler {
-	for i := len(mws) - 1; i >= 0; i-- {
-		h = mws[i](h)
+// chain wraps h with mws. First middleware is outermost.
+func chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler {
+	for _, mw := range slices.Backward(mws) {
+		h = mw(h)
 	}
 	return h
 }

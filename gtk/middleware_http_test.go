@@ -35,7 +35,7 @@ func TestChainOrder(t *testing.T) {
 			})
 		}
 	}
-	h := Chain(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	h := chain(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		order = append(order, "h")
 	}), mw("a"), mw("b"))
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))

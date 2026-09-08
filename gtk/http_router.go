@@ -40,7 +40,7 @@ func (rt *HttpRouter) Controller(pattern string, c ControllerFunc) {
 
 // HandleFunc registers handler on the mux, wrapped with routeMiddlewares.
 func (rt *HttpRouter) HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
-	wrapped := Chain(http.HandlerFunc(handler), rt.routeMiddlewares...)
+	wrapped := chain(http.HandlerFunc(handler), rt.routeMiddlewares...)
 	rt.mux.HandleFunc(pattern, wrapped.ServeHTTP)
 }
 
@@ -50,5 +50,5 @@ func (rt *HttpRouter) Handler() http.Handler {
 	if !rt.isRoot {
 		panic("gtk: Handler called on child HttpRouter")
 	}
-	return Chain(rt.mux, rt.globalMiddlewares...)
+	return chain(rt.mux, rt.globalMiddlewares...)
 }

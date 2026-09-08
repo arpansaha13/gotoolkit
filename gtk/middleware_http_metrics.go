@@ -33,7 +33,8 @@ func RoutePattern(r *http.Request) string {
 // HttpMetricsMiddleware records request count, duration, and in-flight requests.
 // Instruments bind to the global MeterProvider on the first request.
 // Count and duration keep the request span only for status >= 500 or
-// duration >= 1s so Prometheus exemplars point at slow or failed traces.
+// duration >= 1s so the SDK's default TraceBasedFilter attaches exemplars
+// only to slow or failed traces.
 //
 // Count and duration are recorded in a defer, so they still fire if next panics.
 // Place HttpRecoveryMiddleware both before and after this middleware:

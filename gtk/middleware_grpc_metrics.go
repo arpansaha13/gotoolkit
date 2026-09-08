@@ -19,7 +19,8 @@ const grpcMetricsMeter = "github.com/arpansaha13/gotoolkit/gtk/grpc"
 // Instruments bind to the global MeterProvider on the first request.
 // Count and duration keep the request span only for server-error codes
 // (Unknown, DeadlineExceeded, Internal, Unavailable, DataLoss) or
-// duration >= 1s so Prometheus exemplars point at slow or failed traces.
+// duration >= 1s so the SDK's default TraceBasedFilter attaches exemplars
+// only to slow or failed traces.
 //
 // Count and duration are recorded in a defer, so they still fire if the handler
 // panics. Place GrpcRecoveryInterceptor both before and after this interceptor:
