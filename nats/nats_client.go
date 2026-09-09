@@ -34,6 +34,7 @@ type Client struct {
 	reconnect    *backoff.ExponentialBackOff
 	done         chan struct{}
 	running      bool
+	tracer       spanTracer
 }
 
 // NewClient creates an unconnected client. Call Start to connect.
@@ -54,6 +55,7 @@ func NewClient(ctx context.Context, url string, opts ...Option) *Client {
 		Disconnected: gtk.NewEventBusTopic[struct{}](ctx),
 		subs:         make(map[string]*nats.Subscription),
 		reconnect:    bo,
+		tracer:       o.tracer,
 	}
 }
 
@@ -175,7 +177,7 @@ func (c *Client) Conn() *nats.Conn {
 }
 
 // Publish sends data on subject.
-func (c *Client) Publish(subject string, data []byte) error {
+func (c *Client) Publish(ctx context.Context, subject string, data []byte) error {
 	return gtk.ExecErr(c.circuit, func() error {
 		c.mu.RLock()
 		nc := c.nc
@@ -183,21 +185,30 @@ func (c *Client) Publish(subject string, data []byte) error {
 		if nc == nil || !nc.IsConnected() {
 			return fmt.Errorf("nats not connected")
 		}
-		return nc.Publish(subject, data)
+		next := c.tracer.StartPublish(ctx, subject)
+		if next == ctx {
+			return nc.Publish(subject, data)
+		}
+		msg := nats.NewMsg(subject)
+		msg.Data = data
+		c.tracer.Inject(next, msg.Header)
+		err := nc.PublishMsg(msg)
+		c.tracer.End(next, err)
+		return err
 	})
 }
 
 // PublishJSON marshals message and publishes it on subject.
-func (c *Client) PublishJSON(subject string, message any) error {
+func (c *Client) PublishJSON(ctx context.Context, subject string, message any) error {
 	body, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
-	return c.Publish(subject, body)
+	return c.Publish(ctx, subject, body)
 }
 
 // Subscribe registers handler for subject. One subscription per subject.
-func (c *Client) Subscribe(subject string, handler func([]byte)) error {
+func (c *Client) Subscribe(subject string, handler func(context.Context, []byte)) error {
 	if c == nil {
 		return fmt.Errorf("nats client is nil")
 	}
@@ -216,9 +227,13 @@ func (c *Client) Subscribe(subject string, handler func([]byte)) error {
 			return fmt.Errorf("nats not connected")
 		}
 		sub, err := nc.Subscribe(subject, func(msg *nats.Msg) {
-			if msg != nil {
-				handler(msg.Data)
+			if msg == nil {
+				return
 			}
+			ctx := c.tracer.Extract(context.Background(), msg.Header)
+			ctx = c.tracer.StartConsume(ctx, subject)
+			defer c.tracer.End(ctx, nil)
+			handler(ctx, msg.Data)
 		})
 		if err != nil {
 			return fmt.Errorf("subscribe %q: %w", subject, err)
