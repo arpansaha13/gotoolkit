@@ -38,7 +38,7 @@ type Client struct {
 
 // NewClient creates an unconnected client. Call Start to connect.
 // ctx is the parent for shutdown. Nil means context.Background.
-func NewClient(ctx context.Context, url string, opts ...any) *Client {
+func NewClient(ctx context.Context, url string, opts ...Option) *Client {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -48,8 +48,8 @@ func NewClient(ctx context.Context, url string, opts ...any) *Client {
 	return &Client{
 		ctx:          ctx,
 		url:          url,
-		log:          o.shared.Logger,
-		circuit:      o.shared.Circuit,
+		log:          o.logger,
+		circuit:      o.circuit,
 		Connected:    gtk.NewEventBusTopic[struct{}](ctx),
 		Disconnected: gtk.NewEventBusTopic[struct{}](ctx),
 		subs:         make(map[string]*nats.Subscription),

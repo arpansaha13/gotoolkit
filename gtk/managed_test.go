@@ -29,29 +29,6 @@ func TestNoopCircuitExecute(t *testing.T) {
 	}
 }
 
-func TestSharedOptionsApply(t *testing.T) {
-	s := DefaultShared()
-	if _, ok := s.Circuit.(NoopCircuit); !ok {
-		t.Fatalf("default circuit = %T, want NoopCircuit", s.Circuit)
-	}
-	WithCircuit(nil).Apply(&s)
-	if _, ok := s.Circuit.(NoopCircuit); !ok {
-		t.Fatalf("nil WithCircuit = %T, want NoopCircuit", s.Circuit)
-	}
-
-	stub := stubCircuit{}
-	log := zap.NewNop()
-	s = DefaultShared()
-	WithCircuit(stub).Apply(&s)
-	WithLogger(log).Apply(&s)
-	if s.Circuit != stub {
-		t.Fatal("circuit not applied")
-	}
-	if s.Logger != log {
-		t.Fatal("logger not applied")
-	}
-}
-
 func TestDefaultConnectBackoff(t *testing.T) {
 	log := zap.NewNop()
 	cfg := ApplyBackoff(DefaultConnectBackoff(log, WithMaxRetries(8)))
@@ -70,10 +47,4 @@ func TestDefaultConnectBackoff(t *testing.T) {
 	if overridden.Logger != app {
 		t.Fatal("app WithBackoffLogger should override ctor logger")
 	}
-}
-
-type stubCircuit struct{}
-
-func (stubCircuit) Execute(fn func() (any, error)) (any, error) {
-	return fn()
 }

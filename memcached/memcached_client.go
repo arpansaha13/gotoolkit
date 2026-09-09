@@ -26,7 +26,7 @@ type Client struct {
 
 // NewClient creates an unconnected client. Call Start to connect.
 // ctx is the parent for connect/backoff in Start. Nil means context.Background.
-func NewClient(ctx context.Context, address string, opts ...any) *Client {
+func NewClient(ctx context.Context, address string, opts ...Option) *Client {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -35,8 +35,8 @@ func NewClient(ctx context.Context, address string, opts ...any) *Client {
 		ctx:          ctx,
 		address:      address,
 		startTimeout: o.startTimeout,
-		log:          o.shared.Logger,
-		circuit:      o.shared.Circuit,
+		log:          o.logger,
+		circuit:      o.circuit,
 		connectOpts:  o.connectOpts,
 	}
 }

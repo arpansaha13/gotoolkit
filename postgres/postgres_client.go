@@ -46,13 +46,13 @@ type Client struct {
 
 // NewClient creates an unconnected client. Call Start to open the DB.
 // ctx is the parent for connect/backoff in Start. Nil means context.Background.
-func NewClient(ctx context.Context, cfg ClientConfig, opts ...any) *Client {
+func NewClient(ctx context.Context, cfg ClientConfig, opts ...Option) *Client {
 	o := applyOptions(opts)
 	return &Client{
 		ctx:         ctx,
 		cfg:         cfg,
-		circuit:     o.shared.Circuit,
-		log:         o.shared.Logger,
+		circuit:     o.circuit,
+		log:         o.logger,
 		connectOpts: o.connectOpts,
 	}
 }
