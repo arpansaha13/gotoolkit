@@ -13,14 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// ClientConfig holds settings used by Start. Zero MaxOpenConns leaves pgxpool default.
-// Zero StartTimeout means Start uses the caller's context as-is.
-type ClientConfig struct {
-	DatabaseURL  string
-	MaxOpenConns int
-	StartTimeout time.Duration
-}
-
 // Tx is a postgres transaction.
 type Tx = pgx.Tx
 
@@ -35,25 +27,31 @@ type Querier interface {
 // Construct with NewClient (unconnected), then Start. Repos hold this
 // type so they stay valid when the handle is set after connect.
 type Client struct {
-	mu          sync.RWMutex
-	pool        *pgxpool.Pool
-	cfg         ClientConfig
-	ctx         context.Context
-	circuit     gtk.Circuit
-	log         *zap.Logger
-	connectOpts []gtk.BackoffOption
+	mu           sync.RWMutex
+	pool         *pgxpool.Pool
+	databaseURL  string
+	maxOpenConns int
+	startTimeout time.Duration
+	ctx          context.Context
+	circuit      gtk.Circuit
+	log          *zap.Logger
+	connectOpts  []gtk.BackoffOption
+	tracer       pgx.QueryTracer
 }
 
 // NewClient creates an unconnected client. Call Start to open the DB.
 // ctx is the parent for connect/backoff in Start. Nil means context.Background.
-func NewClient(ctx context.Context, cfg ClientConfig, opts ...Option) *Client {
+func NewClient(ctx context.Context, databaseURL string, opts ...Option) *Client {
 	o := applyOptions(opts)
 	return &Client{
-		ctx:         ctx,
-		cfg:         cfg,
-		circuit:     o.circuit,
-		log:         o.logger,
-		connectOpts: o.connectOpts,
+		ctx:          ctx,
+		databaseURL:  databaseURL,
+		maxOpenConns: o.maxOpenConns,
+		startTimeout: o.startTimeout,
+		circuit:      o.circuit,
+		log:          o.logger,
+		connectOpts:  o.connectOpts,
+		tracer:       o.tracer,
 	}
 }
 
@@ -66,9 +64,9 @@ func (p *Client) Start() error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if p.cfg.StartTimeout > 0 {
+	if p.startTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, p.cfg.StartTimeout)
+		ctx, cancel = context.WithTimeout(ctx, p.startTimeout)
 		defer cancel()
 	}
 	pool, err := p.connectWithBackoff(ctx)
@@ -199,10 +197,6 @@ func (p *Client) Transaction(ctx context.Context, fn func(tx Tx) error) error {
 		return err
 	}
 	return tx.Commit(ctx)
-}
-
-func (p *Client) connectWithBackoff(ctx context.Context) (*pgxpool.Pool, error) {
-	return connectWithBackoff(ctx, p.cfg, gtk.DefaultConnectBackoff(p.log, p.connectOpts...)...)
 }
 
 type disconnectedQuerier struct{}

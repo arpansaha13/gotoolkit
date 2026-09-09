@@ -13,7 +13,7 @@ import (
 // connectWithBackoff opens a pgx pool and pings it with exponential
 // backoff retry logic.
 //
-// MaxOpenConns > 0 is applied to the pool config. Zero leaves the pgxpool default.
+// maxOpenConns > 0 is applied to the pool config. Zero leaves the pgxpool default.
 // StartTimeout is ignored; the caller bounds ctx.
 //
 // The operation is retried with exponential backoff until:
@@ -28,17 +28,18 @@ import (
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
 // The logger comes from WithBackoffLogger. Omitted uses zap.NewNop.
-func connectWithBackoff(ctx context.Context, cfg ClientConfig, opts ...gtk.BackoffOption) (*pgxpool.Pool, error) {
-	backoffCfg := gtk.ApplyBackoff(opts)
+func (p *Client) connectWithBackoff(ctx context.Context) (*pgxpool.Pool, error) {
+	backoffCfg := gtk.ApplyBackoff(gtk.DefaultConnectBackoff(p.log, p.connectOpts...))
 	l := backoffCfg.Logger
 
-	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	poolCfg, err := pgxpool.ParseConfig(p.databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.MaxOpenConns > 0 {
-		poolCfg.MaxConns = int32(cfg.MaxOpenConns)
+	if p.maxOpenConns > 0 {
+		poolCfg.MaxConns = int32(p.maxOpenConns)
 	}
+	poolCfg.ConnConfig.Tracer = p.tracer
 
 	var attempt int
 	operation := func() (*pgxpool.Pool, error) {
