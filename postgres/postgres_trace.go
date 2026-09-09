@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/arpansaha13/gotoolkit/gtk"
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -41,6 +42,9 @@ func (t pgxQueryTracer) logger() *zap.Logger {
 }
 
 func (t pgxQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if gtk.ReduceInstrumentation(ctx) {
+		return ctx
+	}
 	if !trace.SpanContextFromContext(ctx).IsValid() {
 		t.logger().Warn("skipped query span: no parent trace")
 		return ctx

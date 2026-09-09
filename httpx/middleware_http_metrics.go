@@ -2,11 +2,13 @@ package httpx
 
 import (
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/arpansaha13/gotoolkit/gtk"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -31,6 +33,9 @@ func RoutePattern(r *http.Request) string {
 }
 
 // MetricsMiddleware records request count, duration, and in-flight requests.
+// livez/readyz are recorded on http.server.healthcheck.* instead, so they
+// do not inflate the request-rate and latency series. /metrics scrapes are
+// skipped when ReduceInstrumentation is set.
 // Instruments bind to the global MeterProvider on the first request.
 // Count and duration keep the request span only for status >= 500 or
 // duration >= 1s so the SDK's default TraceBasedFilter attaches exemplars
@@ -54,11 +59,13 @@ func MetricsMiddleware(routeOf RouteFunc) func(http.Handler) http.Handler {
 }
 
 type httpMetrics struct {
-	once     sync.Once
-	routeOf  RouteFunc
-	requests metric.Int64Counter
-	duration metric.Float64Histogram
-	inflight metric.Int64UpDownCounter
+	once           sync.Once
+	routeOf        RouteFunc
+	requests       metric.Int64Counter
+	duration       metric.Float64Histogram
+	inflight       metric.Int64UpDownCounter
+	healthRequests metric.Int64Counter
+	healthDuration metric.Float64Histogram
 }
 
 func (m *httpMetrics) init() {
@@ -77,34 +84,89 @@ func (m *httpMetrics) init() {
 		"http.server.active_requests",
 		metric.WithDescription("In-flight HTTP requests"),
 	)
+	m.healthRequests, _ = meter.Int64Counter(
+		"http.server.healthcheck.count",
+		metric.WithDescription("Healthcheck HTTP requests"),
+	)
+	m.healthDuration, _ = meter.Float64Histogram(
+		"http.server.healthcheck.duration",
+		metric.WithDescription("Healthcheck HTTP request duration"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+	)
+}
+
+func healthcheckPath(r *http.Request) bool {
+	if r == nil || r.URL == nil {
+		return false
+	}
+	switch path.Base(r.URL.Path) {
+	case "livez", "readyz":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *httpMetrics) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m.once.Do(m.init)
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		if m.inflight != nil {
-			m.inflight.Add(r.Context(), 1)
-			defer m.inflight.Add(r.Context(), -1)
+		if healthcheckPath(r) {
+			m.recordHealthcheck(next, w, r)
+			return
 		}
-		start := time.Now()
-		defer func() {
-			elapsed := time.Since(start)
-			statusAttrs := metric.WithAttributes(
-				attribute.String("method", r.Method),
-				attribute.String("route", m.routeOf(r)),
-				attribute.String("status", strconv.Itoa(rec.status)),
-			)
-			recordCtx := metricsExemplarContext(r.Context(), attachHTTPExemplar(rec.status, elapsed))
-			if m.requests != nil {
-				m.requests.Add(recordCtx, 1, statusAttrs)
-			}
-			if m.duration != nil {
-				m.duration.Record(recordCtx, elapsed.Seconds(), statusAttrs)
-			}
-		}()
-		next.ServeHTTP(rec, r)
+		if gtk.ReduceInstrumentation(r.Context()) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		m.record(next, w, r)
 	})
+}
+
+func (m *httpMetrics) recordHealthcheck(next http.Handler, w http.ResponseWriter, r *http.Request) {
+	m.once.Do(m.init)
+	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		attrs := metric.WithAttributes(
+			attribute.String("method", r.Method),
+			attribute.String("route", m.routeOf(r)),
+			attribute.String("status", strconv.Itoa(rec.status)),
+		)
+		if m.healthRequests != nil {
+			m.healthRequests.Add(r.Context(), 1, attrs)
+		}
+		if m.healthDuration != nil {
+			m.healthDuration.Record(r.Context(), elapsed.Seconds(), attrs)
+		}
+	}()
+	next.ServeHTTP(rec, r)
+}
+
+func (m *httpMetrics) record(next http.Handler, w http.ResponseWriter, r *http.Request) {
+	m.once.Do(m.init)
+	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	if m.inflight != nil {
+		m.inflight.Add(r.Context(), 1)
+		defer m.inflight.Add(r.Context(), -1)
+	}
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		statusAttrs := metric.WithAttributes(
+			attribute.String("method", r.Method),
+			attribute.String("route", m.routeOf(r)),
+			attribute.String("status", strconv.Itoa(rec.status)),
+		)
+		recordCtx := metricsExemplarContext(r.Context(), attachHTTPExemplar(rec.status, elapsed))
+		if m.requests != nil {
+			m.requests.Add(recordCtx, 1, statusAttrs)
+		}
+		if m.duration != nil {
+			m.duration.Record(recordCtx, elapsed.Seconds(), statusAttrs)
+		}
+	}()
+	next.ServeHTTP(rec, r)
 }
 
 type statusRecorder struct {

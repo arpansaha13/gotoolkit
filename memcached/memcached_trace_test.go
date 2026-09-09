@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/arpansaha13/gotoolkit/gtk"
 	"github.com/bradfitz/gomemcache/memcache"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -123,5 +124,26 @@ func TestTraceSkipsWithoutParent(t *testing.T) {
 	}
 	if logs.FilterMessage("skipped memcached span: no parent trace").Len() != 1 {
 		t.Fatalf("warn count = %d, want 1", logs.Len())
+	}
+}
+
+func TestMemcachedTracerReduceInstrumentationSilent(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(noop.NewTracerProvider())
+	})
+
+	core, logs := observer.New(zapcore.WarnLevel)
+	tr := tracer{log: zap.New(core)}
+	ctx := tr.Start(gtk.WithReduceInstrumentation(context.Background()), "GET", "k")
+	tr.End(ctx, nil)
+	if len(sr.Ended()) != 0 {
+		t.Fatal("ReduceInstrumentation must not start a span")
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("ReduceInstrumentation must not warn, got %d", logs.Len())
 	}
 }

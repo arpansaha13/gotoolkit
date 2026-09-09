@@ -3,6 +3,7 @@ package nats
 import (
 	"context"
 
+	"github.com/arpansaha13/gotoolkit/gtk"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -54,6 +55,9 @@ func hasTrace(ctx context.Context) bool {
 }
 
 func (t tracer) StartPublish(ctx context.Context, subject string) context.Context {
+	if gtk.ReduceInstrumentation(ctx) {
+		return ctx
+	}
 	if !hasTrace(ctx) {
 		t.logger().Warn("skipped nats publish span: no parent trace", zap.String("subject", subject))
 		return ctx
@@ -62,8 +66,7 @@ func (t tracer) StartPublish(ctx context.Context, subject string) context.Contex
 }
 
 func (t tracer) StartConsume(ctx context.Context, subject string) context.Context {
-	if !hasTrace(ctx) {
-		t.logger().Warn("skipped nats consume span: no parent trace", zap.String("subject", subject))
+	if gtk.ReduceInstrumentation(ctx) || !hasTrace(ctx) {
 		return ctx
 	}
 	return t.startSpan(ctx, "receive", subject, trace.SpanKindConsumer, semconv.MessagingOperationTypeReceive)

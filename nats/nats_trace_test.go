@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/arpansaha13/gotoolkit/gtk"
 	natslib "github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -117,13 +118,41 @@ func TestNoParentDoesNotStartSpan(t *testing.T) {
 		t.Fatalf("publish warn count = %d, want 1", logs.Len())
 	}
 	if logs.FilterMessage("skipped nats consume span: message header is missing").Len() != 1 {
-		t.Fatalf("missing-header warn count = %d, want 1", logs.Len())
+		t.Fatalf("missing-header warn count = %d, want 1", logs.FilterMessage("skipped nats consume span: message header is missing").Len())
 	}
-	if logs.FilterMessage("skipped nats consume span: no parent trace").Len() != 1 {
-		t.Fatalf("no-parent consume warn count = %d, want 1", logs.FilterMessage("skipped nats consume span: no parent trace").Len())
+	if logs.FilterMessage("skipped nats consume span: no parent trace").Len() != 0 {
+		t.Fatal("StartConsume must not warn after Extract already explained the skip")
 	}
-	_ = tr.Extract(context.Background(), natslib.Header{"X-Foo": []string{"1"}})
+	noTraceCtx := tr.Extract(context.Background(), natslib.Header{"X-Foo": []string{"1"}})
+	tr.End(tr.StartConsume(noTraceCtx, "channel.1"), nil)
 	if logs.FilterMessage("skipped nats consume span: no trace in message header").Len() != 1 {
 		t.Fatalf("no-trace-header warn count = %d, want 1", logs.FilterMessage("skipped nats consume span: no trace in message header").Len())
+	}
+	if logs.FilterMessage("skipped nats consume span: no parent trace").Len() != 0 {
+		t.Fatal("no-trace-in-header must not also log no parent")
+	}
+}
+
+func TestNATSTracerReduceInstrumentationSilent(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(noop.NewTracerProvider())
+	})
+
+	core, logs := observer.New(zapcore.WarnLevel)
+	tr := tracer{log: zap.New(core)}
+	ctx := gtk.WithReduceInstrumentation(context.Background())
+	pubCtx := tr.StartPublish(ctx, "channel.1")
+	tr.End(pubCtx, nil)
+	recvCtx := tr.StartConsume(ctx, "channel.1")
+	tr.End(recvCtx, nil)
+	if len(sr.Ended()) != 0 {
+		t.Fatal("ReduceInstrumentation must not start a span")
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("ReduceInstrumentation must not warn, got %d", logs.Len())
 	}
 }

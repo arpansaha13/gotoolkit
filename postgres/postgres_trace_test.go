@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arpansaha13/gotoolkit/gtk"
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -133,5 +134,27 @@ func TestPgxQueryTracerSkipsWithoutParent(t *testing.T) {
 	}
 	if logs.FilterMessage("skipped query span: no parent trace").Len() != 1 {
 		t.Fatalf("warn count = %d, want 1", logs.Len())
+	}
+}
+
+func TestPgxQueryTracerReduceInstrumentationSilent(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(noop.NewTracerProvider())
+	})
+
+	core, logs := observer.New(zapcore.WarnLevel)
+	tr := pgxQueryTracer{log: zap.New(core)}
+	ctx := gtk.WithReduceInstrumentation(context.Background())
+	ctx = tr.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
+	tr.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
+	if len(sr.Ended()) != 0 {
+		t.Fatal("ReduceInstrumentation must not start a query span")
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("ReduceInstrumentation must not warn, got %d", logs.Len())
 	}
 }

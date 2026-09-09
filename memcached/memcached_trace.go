@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/arpansaha13/gotoolkit/gtk"
 	"github.com/bradfitz/gomemcache/memcache"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -40,6 +41,9 @@ func (t tracer) logger() *zap.Logger {
 }
 
 func (t tracer) Start(ctx context.Context, op, key string) context.Context {
+	if gtk.ReduceInstrumentation(ctx) {
+		return ctx
+	}
 	if ctx == nil || !trace.SpanContextFromContext(ctx).IsValid() {
 		t.logger().Warn("skipped memcached span: no parent trace",
 			zap.String("op", op),

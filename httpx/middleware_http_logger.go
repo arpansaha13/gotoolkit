@@ -37,18 +37,15 @@ func LoggerMiddleware(l *zap.Logger) func(http.Handler) http.Handler {
 
 			// Per-request logger: global fields (service_name etc.) + HTTP fields
 			reqLogger := l.WithOptions(zap.Fields(fields...))
-
-			userAgent := r.Header.Get("User-Agent")
-
-			// Log incoming request
-			reqLogger.Info("incoming request",
-				zap.String("method", r.Method),
-				zap.String("path", r.RequestURI),
-				zap.String("user_agent", userAgent),
-			)
-
-			// Store logger in context for downstream handlers
 			ctx = gtk.LoggerWithContext(ctx, reqLogger)
+
+			if !gtk.ReduceInstrumentation(ctx) {
+				reqLogger.Info("incoming request",
+					zap.String("method", r.Method),
+					zap.String("path", r.RequestURI),
+					zap.String("user_agent", r.Header.Get("User-Agent")),
+				)
+			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
