@@ -15,6 +15,7 @@ type memcachedConfig struct {
 	logger       *zap.Logger
 	startTimeout time.Duration
 	connectOpts  []gtk.BackoffOption
+	tracer       spanTracer
 }
 
 // WithCircuit sets the circuit used by client I/O methods.
@@ -54,15 +55,28 @@ func WithBackoff(opts ...gtk.BackoffOption) Option {
 	}
 }
 
+// WithTracing records Get/Set/Delete as children of the span in ctx.
+// Spans use otel.GetTracerProvider() at operation time. Omitted is off.
+func WithTracing() Option {
+	return func(c *memcachedConfig) {
+		c.tracer = tracer{}
+	}
+}
+
 func applyOptions(opts []Option) memcachedConfig {
 	cfg := memcachedConfig{
 		circuit: gtk.NoopCircuit{},
 		logger:  zap.NewNop(),
+		tracer:  noopTracer{},
 	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
+	}
+	if t, ok := cfg.tracer.(tracer); ok {
+		t.log = cfg.logger
+		cfg.tracer = t
 	}
 	return cfg
 }

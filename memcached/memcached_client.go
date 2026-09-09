@@ -22,6 +22,7 @@ type Client struct {
 	log          *zap.Logger
 	circuit      gtk.Circuit
 	connectOpts  []gtk.BackoffOption
+	tracer       spanTracer
 }
 
 // NewClient creates an unconnected client. Call Start to connect.
@@ -38,6 +39,7 @@ func NewClient(ctx context.Context, address string, opts ...Option) *Client {
 		log:          o.logger,
 		circuit:      o.circuit,
 		connectOpts:  o.connectOpts,
+		tracer:       o.tracer,
 	}
 }
 
@@ -106,35 +108,52 @@ func (m *Client) GetClient() *memcache.Client {
 }
 
 // Get retrieves an item from memcached (delegates to underlying client).
-func (m *Client) Get(key string) (*memcache.Item, error) {
+func (m *Client) Get(ctx context.Context, key string) (*memcache.Item, error) {
 	return gtk.ExecVal(m.circuit, func() (*memcache.Item, error) {
+		ctx = m.tracer.Start(ctx, "GET", key)
 		client := m.GetClient()
 		if client == nil {
-			return nil, memcache.ErrCacheMiss
+			err := memcache.ErrCacheMiss
+			m.tracer.End(ctx, err)
+			return nil, err
 		}
-		return client.Get(key)
+		item, err := client.Get(key)
+		m.tracer.End(ctx, err)
+		return item, err
 	})
 }
 
 // Set stores an item in memcached (delegates to underlying client).
-func (m *Client) Set(item *memcache.Item) error {
+func (m *Client) Set(ctx context.Context, item *memcache.Item) error {
 	return gtk.ExecErr(m.circuit, func() error {
+		key := ""
+		if item != nil {
+			key = item.Key
+		}
+		ctx = m.tracer.Start(ctx, "SET", key)
 		client := m.GetClient()
 		if client == nil {
+			m.tracer.End(ctx, nil)
 			return nil
 		}
-		return client.Set(item)
+		err := client.Set(item)
+		m.tracer.End(ctx, err)
+		return err
 	})
 }
 
 // Delete removes an item from memcached (delegates to underlying client).
-func (m *Client) Delete(key string) error {
+func (m *Client) Delete(ctx context.Context, key string) error {
 	return gtk.ExecErr(m.circuit, func() error {
+		ctx = m.tracer.Start(ctx, "DELETE", key)
 		client := m.GetClient()
 		if client == nil {
+			m.tracer.End(ctx, nil)
 			return nil
 		}
-		return client.Delete(key)
+		err := client.Delete(key)
+		m.tracer.End(ctx, err)
+		return err
 	})
 }
 
