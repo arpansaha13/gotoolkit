@@ -12,26 +12,26 @@ const (
 	defaultRabbitMQReconnectInterval = 500 * time.Millisecond
 )
 
-// RabbitMQOption configures NewRabbitMQClient.
-type RabbitMQOption interface {
-	applyRabbitMQ(*rabbitMQConfig)
+// Option configures NewClient.
+type Option interface {
+	apply(*rabbitMQConfig)
 }
 
 type rabbitMQConfig struct {
 	shared            gtk.Shared
 	connectTimeout    time.Duration
 	reconnectInterval time.Duration
-	topology          RabbitMQTopology
+	topology          Topology
 	connectOpts       []gtk.BackoffOption
 }
 
 type rabbitMQOptionFunc func(*rabbitMQConfig)
 
-func (f rabbitMQOptionFunc) applyRabbitMQ(c *rabbitMQConfig) { f(c) }
+func (f rabbitMQOptionFunc) apply(c *rabbitMQConfig) { f(c) }
 
 // WithConnectTimeout sets the per-dial budget in the reconnect loop.
 // Zero or omitted uses 15s.
-func WithConnectTimeout(d time.Duration) RabbitMQOption {
+func WithConnectTimeout(d time.Duration) Option {
 	return rabbitMQOptionFunc(func(c *rabbitMQConfig) {
 		if d > 0 {
 			c.connectTimeout = d
@@ -41,7 +41,7 @@ func WithConnectTimeout(d time.Duration) RabbitMQOption {
 
 // WithReconnectInterval sets the delay between reconnect attempts.
 // Zero or omitted uses 500ms.
-func WithReconnectInterval(d time.Duration) RabbitMQOption {
+func WithReconnectInterval(d time.Duration) Option {
 	return rabbitMQOptionFunc(func(c *rabbitMQConfig) {
 		if d > 0 {
 			c.reconnectInterval = d
@@ -50,21 +50,21 @@ func WithReconnectInterval(d time.Duration) RabbitMQOption {
 }
 
 // WithTopology declares exchanges, queues, and bindings on every new channel.
-func WithTopology(t RabbitMQTopology) RabbitMQOption {
+func WithTopology(t Topology) Option {
 	return rabbitMQOptionFunc(func(c *rabbitMQConfig) {
 		c.topology = t
 	})
 }
 
-// WithRabbitMQBackoff sets backoff options for connectRabbitMQWithBackoff.
+// WithBackoff sets backoff options for connectWithBackoff.
 // The constructor logger is prepended; a WithBackoffLogger here overrides it.
-func WithRabbitMQBackoff(opts ...gtk.BackoffOption) RabbitMQOption {
+func WithBackoff(opts ...gtk.BackoffOption) Option {
 	return rabbitMQOptionFunc(func(c *rabbitMQConfig) {
 		c.connectOpts = opts
 	})
 }
 
-func applyRabbitMQOptions(opts []any) rabbitMQConfig {
+func applyOptions(opts []any) rabbitMQConfig {
 	cfg := rabbitMQConfig{shared: gtk.DefaultShared()}
 	for _, opt := range opts {
 		if opt == nil {
@@ -73,8 +73,8 @@ func applyRabbitMQOptions(opts []any) rabbitMQConfig {
 		switch v := opt.(type) {
 		case gtk.Option:
 			v.Apply(&cfg.shared)
-		case RabbitMQOption:
-			v.applyRabbitMQ(&cfg)
+		case Option:
+			v.apply(&cfg)
 		default:
 			panic(fmt.Sprintf("rabbitmq: unsupported option %T", opt))
 		}

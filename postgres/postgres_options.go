@@ -6,9 +6,9 @@ import (
 	"github.com/arpansaha13/gotoolkit/gtk"
 )
 
-// PostgresOption configures NewPostgresClient.
-type PostgresOption interface {
-	applyPostgres(*postgresConfig)
+// Option configures NewClient.
+type Option interface {
+	apply(*postgresConfig)
 }
 
 type postgresConfig struct {
@@ -18,17 +18,17 @@ type postgresConfig struct {
 
 type postgresOptionFunc func(*postgresConfig)
 
-func (f postgresOptionFunc) applyPostgres(c *postgresConfig) { f(c) }
+func (f postgresOptionFunc) apply(c *postgresConfig) { f(c) }
 
-// WithPostgresBackoff sets backoff options for connectPostgresWithBackoff.
+// WithBackoff sets backoff options for connectWithBackoff.
 // The constructor logger is prepended; a WithBackoffLogger here overrides it.
-func WithPostgresBackoff(opts ...gtk.BackoffOption) PostgresOption {
+func WithBackoff(opts ...gtk.BackoffOption) Option {
 	return postgresOptionFunc(func(c *postgresConfig) {
 		c.connectOpts = opts
 	})
 }
 
-func applyPostgresOptions(opts []any) postgresConfig {
+func applyOptions(opts []any) postgresConfig {
 	cfg := postgresConfig{shared: gtk.DefaultShared()}
 	for _, opt := range opts {
 		if opt == nil {
@@ -37,8 +37,8 @@ func applyPostgresOptions(opts []any) postgresConfig {
 		switch v := opt.(type) {
 		case gtk.Option:
 			v.Apply(&cfg.shared)
-		case PostgresOption:
-			v.applyPostgres(&cfg)
+		case Option:
+			v.apply(&cfg)
 		default:
 			panic(fmt.Sprintf("postgres: unsupported option %T", opt))
 		}

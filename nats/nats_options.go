@@ -6,9 +6,9 @@ import (
 	"github.com/arpansaha13/gotoolkit/gtk"
 )
 
-// NATSOption configures NewNATSClient.
-type NATSOption interface {
-	applyNATS(*natsConfig)
+// Option configures NewClient.
+type Option interface {
+	apply(*natsConfig)
 }
 
 type natsConfig struct {
@@ -17,9 +17,9 @@ type natsConfig struct {
 
 type natsOptionFunc func(*natsConfig)
 
-func (f natsOptionFunc) applyNATS(c *natsConfig) { f(c) }
+func (f natsOptionFunc) apply(c *natsConfig) { f(c) }
 
-func applyNATSOptions(opts []any) natsConfig {
+func applyOptions(opts []any) natsConfig {
 	cfg := natsConfig{shared: gtk.DefaultShared()}
 	for _, opt := range opts {
 		if opt == nil {
@@ -28,8 +28,8 @@ func applyNATSOptions(opts []any) natsConfig {
 		switch v := opt.(type) {
 		case gtk.Option:
 			v.Apply(&cfg.shared)
-		case NATSOption:
-			v.applyNATS(&cfg)
+		case Option:
+			v.apply(&cfg)
 		default:
 			panic(fmt.Sprintf("nats: unsupported option %T", opt))
 		}

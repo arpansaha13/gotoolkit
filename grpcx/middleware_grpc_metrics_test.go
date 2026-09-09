@@ -12,7 +12,7 @@ import (
 func TestGrpcMetricsInterceptorPassesThrough(t *testing.T) {
 	want := status.Error(codes.NotFound, "missing")
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Get"}
-	interceptor := GrpcMetricsInterceptor()
+	interceptor := MetricsInterceptor()
 	_, err := interceptor(context.Background(), nil, info, func(context.Context, any) (any, error) {
 		return "ok", want
 	})
@@ -24,8 +24,8 @@ func TestGrpcMetricsInterceptorPassesThrough(t *testing.T) {
 func TestGrpcMetricsInterceptorRecoversViaInnerHandler(t *testing.T) {
 	// Inner recovery converts panic to Internal; metrics must still return that error.
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Panic"}
-	chain := GrpcMetricsInterceptor()
-	inner := GrpcRecoveryInterceptor()
+	chain := MetricsInterceptor()
+	inner := RecoveryInterceptor()
 	_, err := chain(context.Background(), nil, info, func(ctx context.Context, req any) (any, error) {
 		return inner(ctx, req, info, func(context.Context, any) (any, error) {
 			panic("boom")

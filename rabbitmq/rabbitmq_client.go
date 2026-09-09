@@ -12,10 +12,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// RabbitMQClient is a thread-safe wrapper around an AMQP connection and channel.
-// Construct with NewRabbitMQClient (unconnected), then Start.
+// Client is a thread-safe wrapper around an AMQP connection and channel.
+// Construct with NewClient (unconnected), then Start.
 // Start reconnects on AMQP NotifyClose until Stop or ctx cancel.
-type RabbitMQClient struct {
+type Client struct {
 	mu                sync.RWMutex
 	chMu              sync.Mutex
 	conn              *amqp091.Connection
@@ -23,7 +23,7 @@ type RabbitMQClient struct {
 	url               string
 	connectTimeout    time.Duration
 	reconnectInterval time.Duration
-	topology          RabbitMQTopology
+	topology          Topology
 	Connected         *gtk.EventBusTopic[struct{}]
 	Disconnected      *gtk.EventBusTopic[struct{}]
 	ctx               context.Context
@@ -36,14 +36,14 @@ type RabbitMQClient struct {
 	running           bool
 }
 
-// NewRabbitMQClient creates an unconnected client. Call Start to connect.
+// NewClient creates an unconnected client. Call Start to connect.
 // ctx is the parent for connect/reconnect. Nil means context.Background.
-func NewRabbitMQClient(ctx context.Context, url string, opts ...any) *RabbitMQClient {
+func NewClient(ctx context.Context, url string, opts ...any) *Client {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	o := applyRabbitMQOptions(opts)
-	return &RabbitMQClient{
+	o := applyOptions(opts)
+	return &Client{
 		ctx:               ctx,
 		url:               url,
 		connectTimeout:    o.connectTimeout,
@@ -58,7 +58,7 @@ func NewRabbitMQClient(ctx context.Context, url string, opts ...any) *RabbitMQCl
 }
 
 // Start begins the reconnect loop. The first dial runs in the background.
-func (r *RabbitMQClient) Start() error {
+func (r *Client) Start() error {
 	if r == nil {
 		return fmt.Errorf("rabbitmq client is nil")
 	}
@@ -75,7 +75,7 @@ func (r *RabbitMQClient) Start() error {
 }
 
 // Stop shuts down the reconnect loop and closes the connection.
-func (r *RabbitMQClient) Stop() error {
+func (r *Client) Stop() error {
 	if r == nil {
 		return nil
 	}
@@ -91,7 +91,7 @@ func (r *RabbitMQClient) Stop() error {
 	return nil
 }
 
-func (r *RabbitMQClient) reconnectLoop() {
+func (r *Client) reconnectLoop() {
 	for {
 		if r.stopped() {
 			return
@@ -151,7 +151,7 @@ func (r *RabbitMQClient) reconnectLoop() {
 	}
 }
 
-func (r *RabbitMQClient) dial(ctx context.Context) error {
+func (r *Client) dial(ctx context.Context) error {
 	conn, err := r.connectWithBackoff(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to rabbitmq: %w", err)
@@ -167,7 +167,7 @@ func (r *RabbitMQClient) dial(ctx context.Context) error {
 	return nil
 }
 
-func (r *RabbitMQClient) openChannel() error {
+func (r *Client) openChannel() error {
 	r.mu.RLock()
 	conn := r.conn
 	r.mu.RUnlock()
@@ -195,7 +195,7 @@ func (r *RabbitMQClient) openChannel() error {
 	return nil
 }
 
-func (r *RabbitMQClient) watchClose(notify <-chan *amqp091.Error, closed chan struct{}, kind string) {
+func (r *Client) watchClose(notify <-chan *amqp091.Error, closed chan struct{}, kind string) {
 	go func() {
 		err := <-notify
 		if r.stopped() {
@@ -212,7 +212,7 @@ func (r *RabbitMQClient) watchClose(notify <-chan *amqp091.Error, closed chan st
 	}()
 }
 
-func (r *RabbitMQClient) closeChannel() {
+func (r *Client) closeChannel() {
 	if r.Disconnected != nil {
 		r.Disconnected.Publish(struct{}{})
 	}
@@ -225,7 +225,7 @@ func (r *RabbitMQClient) closeChannel() {
 	}
 }
 
-func (r *RabbitMQClient) dropConnection() {
+func (r *Client) dropConnection() {
 	r.mu.Lock()
 	conn := r.conn
 	r.conn = nil
@@ -235,24 +235,24 @@ func (r *RabbitMQClient) dropConnection() {
 	}
 }
 
-func (r *RabbitMQClient) teardown() {
+func (r *Client) teardown() {
 	r.closeChannel()
 	r.dropConnection()
 	r.log.Info("rabbitmq disconnected")
 }
 
-func (r *RabbitMQClient) connAlive() bool {
+func (r *Client) connAlive() bool {
 	r.mu.RLock()
 	conn := r.conn
 	r.mu.RUnlock()
 	return conn != nil && !conn.IsClosed()
 }
 
-func (r *RabbitMQClient) connectWithBackoff(ctx context.Context) (*amqp091.Connection, error) {
-	return connectRabbitMQWithBackoff(ctx, r.url, gtk.DefaultConnectBackoff(r.log, r.connectOpts...)...)
+func (r *Client) connectWithBackoff(ctx context.Context) (*amqp091.Connection, error) {
+	return connectWithBackoff(ctx, r.url, gtk.DefaultConnectBackoff(r.log, r.connectOpts...)...)
 }
 
-func (r *RabbitMQClient) stopped() bool {
+func (r *Client) stopped() bool {
 	select {
 	case <-r.done:
 		return true
@@ -263,7 +263,7 @@ func (r *RabbitMQClient) stopped() bool {
 	}
 }
 
-func (r *RabbitMQClient) wait(d time.Duration) bool {
+func (r *Client) wait(d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
@@ -277,7 +277,7 @@ func (r *RabbitMQClient) wait(d time.Duration) bool {
 }
 
 // Connection returns the current AMQP connection, or nil if disconnected.
-func (r *RabbitMQClient) Connection() *amqp091.Connection {
+func (r *Client) Connection() *amqp091.Connection {
 	if r == nil {
 		return nil
 	}
@@ -287,7 +287,7 @@ func (r *RabbitMQClient) Connection() *amqp091.Connection {
 }
 
 // GetChannel returns the current AMQP channel, or nil if disconnected.
-func (r *RabbitMQClient) GetChannel() *amqp091.Channel {
+func (r *Client) GetChannel() *amqp091.Channel {
 	if r == nil {
 		return nil
 	}
@@ -297,7 +297,7 @@ func (r *RabbitMQClient) GetChannel() *amqp091.Channel {
 }
 
 // IsConnected reports whether a live connection and channel are available.
-func (r *RabbitMQClient) IsConnected() bool {
+func (r *Client) IsConnected() bool {
 	if r == nil {
 		return false
 	}
@@ -306,14 +306,14 @@ func (r *RabbitMQClient) IsConnected() bool {
 	return r.channel != nil && r.conn != nil && !r.conn.IsClosed()
 }
 
-func (r *RabbitMQClient) currentChannel() *amqp091.Channel {
+func (r *Client) currentChannel() *amqp091.Channel {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.channel
 }
 
 // PublishJSON marshals message and publishes it as a persistent JSON AMQP message.
-func (r *RabbitMQClient) PublishJSON(exchange, routingKey string, message any) error {
+func (r *Client) PublishJSON(exchange, routingKey string, message any) error {
 	body, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
@@ -334,7 +334,7 @@ func (r *RabbitMQClient) PublishJSON(exchange, routingKey string, message any) e
 }
 
 // QueueBind adds a routing-key binding on the current channel.
-func (r *RabbitMQClient) QueueBind(queue, key, exchange string) error {
+func (r *Client) QueueBind(queue, key, exchange string) error {
 	return gtk.ExecErr(r.circuit, func() error {
 		r.chMu.Lock()
 		defer r.chMu.Unlock()
@@ -347,7 +347,7 @@ func (r *RabbitMQClient) QueueBind(queue, key, exchange string) error {
 }
 
 // QueueUnbind removes a routing-key binding on the current channel.
-func (r *RabbitMQClient) QueueUnbind(queue, key, exchange string) error {
+func (r *Client) QueueUnbind(queue, key, exchange string) error {
 	return gtk.ExecErr(r.circuit, func() error {
 		r.chMu.Lock()
 		defer r.chMu.Unlock()
@@ -360,7 +360,7 @@ func (r *RabbitMQClient) QueueUnbind(queue, key, exchange string) error {
 }
 
 // Consume starts a consumer on queue. The caller must Ack/Nack deliveries.
-func (r *RabbitMQClient) Consume(queue string) (<-chan amqp091.Delivery, error) {
+func (r *Client) Consume(queue string) (<-chan amqp091.Delivery, error) {
 	return gtk.ExecVal(r.circuit, func() (<-chan amqp091.Delivery, error) {
 		r.chMu.Lock()
 		defer r.chMu.Unlock()
@@ -373,7 +373,7 @@ func (r *RabbitMQClient) Consume(queue string) (<-chan amqp091.Delivery, error) 
 }
 
 // Ack acknowledges a delivery on the current channel.
-func (r *RabbitMQClient) Ack(d amqp091.Delivery) error {
+func (r *Client) Ack(d amqp091.Delivery) error {
 	return gtk.ExecErr(r.circuit, func() error {
 		r.chMu.Lock()
 		defer r.chMu.Unlock()
@@ -382,7 +382,7 @@ func (r *RabbitMQClient) Ack(d amqp091.Delivery) error {
 }
 
 // Nack negatively acknowledges a delivery on the current channel.
-func (r *RabbitMQClient) Nack(d amqp091.Delivery, requeue bool) error {
+func (r *Client) Nack(d amqp091.Delivery, requeue bool) error {
 	return gtk.ExecErr(r.circuit, func() error {
 		r.chMu.Lock()
 		defer r.chMu.Unlock()
@@ -390,4 +390,4 @@ func (r *RabbitMQClient) Nack(d amqp091.Delivery, requeue bool) error {
 	})
 }
 
-var _ gtk.ManagedClient = (*RabbitMQClient)(nil)
+var _ gtk.ManagedClient = (*Client)(nil)

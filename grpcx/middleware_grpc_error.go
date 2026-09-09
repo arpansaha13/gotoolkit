@@ -11,8 +11,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GrpcErrorInterceptor is a middleware that catches errors and translates domain errors to gRPC status codes
-func GrpcErrorInterceptor() grpc.UnaryServerInterceptor {
+// ErrorInterceptor is a middleware that catches errors and translates domain errors to gRPC status codes
+func ErrorInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		resp, err := handler(ctx, req)
 

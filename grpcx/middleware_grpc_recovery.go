@@ -10,8 +10,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GrpcRecoveryInterceptor recovers from panics in gRPC handlers
-func GrpcRecoveryInterceptor() grpc.UnaryServerInterceptor {
+// RecoveryInterceptor recovers from panics in gRPC handlers
+func RecoveryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		defer func() {
 			if r := recover(); r != nil {

@@ -21,7 +21,7 @@ func namedMW(name string, order *[]string) func(http.Handler) http.Handler {
 
 func TestHttpRouterHandlerAppliesGlobalMiddleware(t *testing.T) {
 	var order []string
-	rt := NewHttpRouter(namedMW("g1", &order), namedMW("g2", &order))
+	rt := NewRouter(namedMW("g1", &order), namedMW("g2", &order))
 	rt.HandleFunc("GET /ok", func(w http.ResponseWriter, r *http.Request) {
 		order = append(order, "h")
 		w.WriteHeader(http.StatusNoContent)
@@ -45,7 +45,7 @@ func TestHttpRouterHandlerAppliesGlobalMiddleware(t *testing.T) {
 
 func TestHttpRouterChildPrependsRouteMiddleware(t *testing.T) {
 	var order []string
-	root := NewHttpRouter(namedMW("g", &order))
+	root := NewRouter(namedMW("g", &order))
 	child := root.Child(namedMW("p", &order))
 	grand := child.Child(namedMW("c", &order))
 	grand.HandleFunc("GET /x", func(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +66,7 @@ func TestHttpRouterChildPrependsRouteMiddleware(t *testing.T) {
 }
 
 func TestHttpRouterHandlerPanicsOnChild(t *testing.T) {
-	root := NewHttpRouter()
+	root := NewRouter()
 	child := root.Child()
 	defer func() {
 		if rec := recover(); rec == nil {
@@ -77,7 +77,7 @@ func TestHttpRouterHandlerPanicsOnChild(t *testing.T) {
 }
 
 func TestHttpRouterControllerMapsErrorWithoutPanic(t *testing.T) {
-	rt := NewHttpRouter()
+	rt := NewRouter()
 	rt.Controller("GET /boom", func(http.ResponseWriter, *http.Request) (*ControllerResponse, error) {
 		return nil, &gtk.ValidationError{Message: "bad"}
 	})
@@ -101,7 +101,7 @@ func TestHttpRouterControllerMapsErrorWithoutPanic(t *testing.T) {
 }
 
 func TestHttpRouterControllerSuccess(t *testing.T) {
-	rt := NewHttpRouter()
+	rt := NewRouter()
 	rt.Controller("GET /ok", func(http.ResponseWriter, *http.Request) (*ControllerResponse, error) {
 		return &ControllerResponse{StatusCode: http.StatusCreated, Body: map[string]string{"id": "1"}}, nil
 	})

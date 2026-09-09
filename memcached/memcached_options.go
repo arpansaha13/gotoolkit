@@ -7,9 +7,9 @@ import (
 	"github.com/arpansaha13/gotoolkit/gtk"
 )
 
-// MemcachedOption configures NewMemcachedClient.
-type MemcachedOption interface {
-	applyMemcached(*memcachedConfig)
+// Option configures NewClient.
+type Option interface {
+	apply(*memcachedConfig)
 }
 
 type memcachedConfig struct {
@@ -20,11 +20,11 @@ type memcachedConfig struct {
 
 type memcachedOptionFunc func(*memcachedConfig)
 
-func (f memcachedOptionFunc) applyMemcached(c *memcachedConfig) { f(c) }
+func (f memcachedOptionFunc) apply(c *memcachedConfig) { f(c) }
 
 // WithStartTimeout bounds Start connect/backoff. Zero or omitted uses the
 // constructor context as-is.
-func WithStartTimeout(d time.Duration) MemcachedOption {
+func WithStartTimeout(d time.Duration) Option {
 	return memcachedOptionFunc(func(c *memcachedConfig) {
 		if d > 0 {
 			c.startTimeout = d
@@ -32,15 +32,15 @@ func WithStartTimeout(d time.Duration) MemcachedOption {
 	})
 }
 
-// WithMemcachedBackoff sets backoff options for connectMemcachedWithBackoff.
+// WithBackoff sets backoff options for connectWithBackoff.
 // The constructor logger is prepended; a WithBackoffLogger here overrides it.
-func WithMemcachedBackoff(opts ...gtk.BackoffOption) MemcachedOption {
+func WithBackoff(opts ...gtk.BackoffOption) Option {
 	return memcachedOptionFunc(func(c *memcachedConfig) {
 		c.connectOpts = opts
 	})
 }
 
-func applyMemcachedOptions(opts []any) memcachedConfig {
+func applyOptions(opts []any) memcachedConfig {
 	cfg := memcachedConfig{shared: gtk.DefaultShared()}
 	for _, opt := range opts {
 		if opt == nil {
@@ -49,8 +49,8 @@ func applyMemcachedOptions(opts []any) memcachedConfig {
 		switch v := opt.(type) {
 		case gtk.Option:
 			v.Apply(&cfg.shared)
-		case MemcachedOption:
-			v.applyMemcached(&cfg)
+		case Option:
+			v.apply(&cfg)
 		default:
 			panic(fmt.Sprintf("memcached: unsupported option %T", opt))
 		}

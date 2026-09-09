@@ -12,13 +12,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GrpcLoggerInterceptor returns a gRPC unary server interceptor that logs with high observability.
+// LoggerInterceptor returns a gRPC unary server interceptor that logs with high observability.
 // It extracts trace_id and span_id from the OTel span context and adds them as fields.
 // It also captures caller_ip, method name, latency, and gRPC status on completion.
 //
 // Note: This interceptor must be chained AFTER any OTel gRPC instrumentation (e.g., otelgrpc)
 // so that span context is already present in ctx.
-func GrpcLoggerInterceptor(l *zap.Logger) grpc.UnaryServerInterceptor {
+func LoggerInterceptor(l *zap.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 

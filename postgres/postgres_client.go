@@ -13,9 +13,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// PostgresClientConfig holds settings used by Start. Zero MaxOpenConns leaves pgxpool default.
+// ClientConfig holds settings used by Start. Zero MaxOpenConns leaves pgxpool default.
 // Zero StartTimeout means Start uses the caller's context as-is.
-type PostgresClientConfig struct {
+type ClientConfig struct {
 	DatabaseURL  string
 	MaxOpenConns int
 	StartTimeout time.Duration
@@ -31,24 +31,24 @@ type Querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// PostgresClient is a thread-safe wrapper around *pgxpool.Pool.
-// Construct with NewPostgresClient (unconnected), then Start. Repos hold this
+// Client is a thread-safe wrapper around *pgxpool.Pool.
+// Construct with NewClient (unconnected), then Start. Repos hold this
 // type so they stay valid when the handle is set after connect.
-type PostgresClient struct {
+type Client struct {
 	mu          sync.RWMutex
 	pool        *pgxpool.Pool
-	cfg         PostgresClientConfig
+	cfg         ClientConfig
 	ctx         context.Context
 	circuit     gtk.Circuit
 	log         *zap.Logger
 	connectOpts []gtk.BackoffOption
 }
 
-// NewPostgresClient creates an unconnected client. Call Start to open the DB.
+// NewClient creates an unconnected client. Call Start to open the DB.
 // ctx is the parent for connect/backoff in Start. Nil means context.Background.
-func NewPostgresClient(ctx context.Context, cfg PostgresClientConfig, opts ...any) *PostgresClient {
-	o := applyPostgresOptions(opts)
-	return &PostgresClient{
+func NewClient(ctx context.Context, cfg ClientConfig, opts ...any) *Client {
+	o := applyOptions(opts)
+	return &Client{
 		ctx:         ctx,
 		cfg:         cfg,
 		circuit:     o.shared.Circuit,
@@ -58,7 +58,7 @@ func NewPostgresClient(ctx context.Context, cfg PostgresClientConfig, opts ...an
 }
 
 // Start connects with backoff and stores the handle. Safe to call once.
-func (p *PostgresClient) Start() error {
+func (p *Client) Start() error {
 	if p == nil {
 		return fmt.Errorf("postgres client is nil")
 	}
@@ -80,7 +80,7 @@ func (p *PostgresClient) Start() error {
 }
 
 // Stop closes the underlying connection and clears the handle.
-func (p *PostgresClient) Stop() error {
+func (p *Client) Stop() error {
 	if p == nil {
 		return nil
 	}
@@ -95,7 +95,7 @@ func (p *PostgresClient) Stop() error {
 }
 
 // SetPool updates the underlying pool (nil clears it on disconnect).
-func (p *PostgresClient) SetPool(pool *pgxpool.Pool) {
+func (p *Client) SetPool(pool *pgxpool.Pool) {
 	if p == nil {
 		return
 	}
@@ -105,7 +105,7 @@ func (p *PostgresClient) SetPool(pool *pgxpool.Pool) {
 }
 
 // Pool returns the current pool, or nil if disconnected.
-func (p *PostgresClient) Pool() *pgxpool.Pool {
+func (p *Client) Pool() *pgxpool.Pool {
 	if p == nil {
 		return nil
 	}
@@ -115,7 +115,7 @@ func (p *PostgresClient) Pool() *pgxpool.Pool {
 }
 
 // Ping checks that the pool is connected and accepting queries.
-func (p *PostgresClient) Ping(ctx context.Context) error {
+func (p *Client) Ping(ctx context.Context) error {
 	return gtk.ExecErr(p.circuit, func() error {
 		pool := p.Pool()
 		if pool == nil {
@@ -126,7 +126,7 @@ func (p *PostgresClient) Ping(ctx context.Context) error {
 }
 
 // Q returns tx when non-nil, otherwise the pool.
-func (p *PostgresClient) Q(tx Tx) Querier {
+func (p *Client) Q(tx Tx) Querier {
 	if tx != nil {
 		return tx
 	}
@@ -138,7 +138,7 @@ func (p *PostgresClient) Q(tx Tx) Querier {
 }
 
 // Exec runs a statement on the pool.
-func (p *PostgresClient) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+func (p *Client) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 	return gtk.ExecVal(p.circuit, func() (pgconn.CommandTag, error) {
 		pool := p.Pool()
 		if pool == nil {
@@ -149,7 +149,7 @@ func (p *PostgresClient) Exec(ctx context.Context, sql string, arguments ...any)
 }
 
 // Query runs a query on the pool.
-func (p *PostgresClient) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+func (p *Client) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return gtk.ExecVal(p.circuit, func() (pgx.Rows, error) {
 		pool := p.Pool()
 		if pool == nil {
@@ -160,7 +160,7 @@ func (p *PostgresClient) Query(ctx context.Context, sql string, args ...any) (pg
 }
 
 // QueryRow runs a single-row query on the pool.
-func (p *PostgresClient) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+func (p *Client) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return circuitRow{
 		circuit: p.circuit,
 		scan: func(dest ...any) error {
@@ -174,7 +174,7 @@ func (p *PostgresClient) QueryRow(ctx context.Context, sql string, args ...any) 
 }
 
 // Begin starts a transaction on the pool.
-func (p *PostgresClient) Begin(ctx context.Context) (pgx.Tx, error) {
+func (p *Client) Begin(ctx context.Context) (pgx.Tx, error) {
 	return gtk.ExecVal(p.circuit, func() (pgx.Tx, error) {
 		pool := p.Pool()
 		if pool == nil {
@@ -185,7 +185,7 @@ func (p *PostgresClient) Begin(ctx context.Context) (pgx.Tx, error) {
 }
 
 // Transaction runs fn inside a database transaction.
-func (p *PostgresClient) Transaction(ctx context.Context, fn func(tx Tx) error) error {
+func (p *Client) Transaction(ctx context.Context, fn func(tx Tx) error) error {
 	pool := p.Pool()
 	if pool == nil {
 		return &NotConnectedError{}
@@ -201,8 +201,8 @@ func (p *PostgresClient) Transaction(ctx context.Context, fn func(tx Tx) error) 
 	return tx.Commit(ctx)
 }
 
-func (p *PostgresClient) connectWithBackoff(ctx context.Context) (*pgxpool.Pool, error) {
-	return connectPostgresWithBackoff(ctx, p.cfg, gtk.DefaultConnectBackoff(p.log, p.connectOpts...)...)
+func (p *Client) connectWithBackoff(ctx context.Context) (*pgxpool.Pool, error) {
+	return connectWithBackoff(ctx, p.cfg, gtk.DefaultConnectBackoff(p.log, p.connectOpts...)...)
 }
 
 type disconnectedQuerier struct{}
@@ -232,4 +232,4 @@ func (r circuitRow) Scan(dest ...any) error {
 	})
 }
 
-var _ gtk.ManagedClient = (*PostgresClient)(nil)
+var _ gtk.ManagedClient = (*Client)(nil)

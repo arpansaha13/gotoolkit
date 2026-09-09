@@ -28,10 +28,10 @@ func ControllerErrorDecorator(c ControllerFunc) ControllerFunc {
 	}
 }
 
-// HttpErrorMiddleware recovers from panics thrown by handlers and converts
+// ErrorMiddleware recovers from panics thrown by handlers and converts
 // domain errors to HTTP responses. Controller errors go through
 // ControllerErrorDecorator instead; this remains for unexpected panics.
-func HttpErrorMiddleware(next http.Handler) http.Handler {
+func ErrorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -70,8 +70,8 @@ func HttpErrorMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// HttpWriteErrorWithContext writes an error response with logging to the client
-func HttpWriteErrorWithContext(w http.ResponseWriter, r *http.Request, err error) {
+// WriteErrorWithContext writes an error response with logging to the client
+func WriteErrorWithContext(w http.ResponseWriter, r *http.Request, err error) {
 	lgr := gtk.LoggerFromContext(r.Context())
 	statusCode, message, code := errorToHTTP(err)
 	lgr.Info("error response", zap.String("code", code), zap.Int("status", statusCode), zap.Error(err))

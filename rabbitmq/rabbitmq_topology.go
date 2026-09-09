@@ -33,14 +33,14 @@ type BindingDecl struct {
 	NoWait   bool
 }
 
-// RabbitMQTopology is applied after every successful Channel() open.
-type RabbitMQTopology struct {
+// Topology is applied after every successful Channel() open.
+type Topology struct {
 	Exchanges []ExchangeDecl
 	Queues    []QueueDecl
 	Bindings  []BindingDecl
 }
 
-func declareTopology(ch *amqp091.Channel, topo RabbitMQTopology) error {
+func declareTopology(ch *amqp091.Channel, topo Topology) error {
 	for _, e := range topo.Exchanges {
 		kind := e.Kind
 		if kind == "" {

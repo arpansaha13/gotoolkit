@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// connectMemcachedWithBackoff creates a Memcached client and verifies connectivity
+// connectWithBackoff creates a Memcached client and verifies connectivity
 // with exponential backoff retry logic.
 //
 // Connectivity is verified by issuing a Get request for a probe key. A cache miss
@@ -32,7 +32,7 @@ import (
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
 // The logger comes from WithBackoffLogger. Omitted uses zap.NewNop.
-func connectMemcachedWithBackoff(ctx context.Context, address string, opts ...gtk.BackoffOption) (*memcache.Client, error) {
+func connectWithBackoff(ctx context.Context, address string, opts ...gtk.BackoffOption) (*memcache.Client, error) {
 	cfg := gtk.ApplyBackoff(opts)
 
 	l := cfg.Logger

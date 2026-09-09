@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// connectRabbitMQWithBackoff connects to RabbitMQ with exponential backoff retry logic.
+// connectWithBackoff connects to RabbitMQ with exponential backoff retry logic.
 //
 // The connection operation is retried with exponential backoff until:
 // - Success (returns *amqp091.Connection)
@@ -25,7 +25,7 @@ import (
 //
 // The logger comes from WithBackoffLogger. Omitted uses zap.NewNop.
 // Note: Channel creation is the caller's responsibility.
-func connectRabbitMQWithBackoff(ctx context.Context, url string, opts ...gtk.BackoffOption) (*amqp091.Connection, error) {
+func connectWithBackoff(ctx context.Context, url string, opts ...gtk.BackoffOption) (*amqp091.Connection, error) {
 	cfg := gtk.ApplyBackoff(opts)
 
 	l := cfg.Logger

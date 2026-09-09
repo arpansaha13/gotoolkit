@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// ConnectKafkaWithBackoff connects to Kafka with exponential backoff retry logic.
+// ConnectWithBackoff connects to Kafka with exponential backoff retry logic.
 //
 // The connection operation verifies connectivity by dialing the first broker,
 // then returns a new kafka.Writer with the provided config.
@@ -31,7 +31,7 @@ import (
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
 // The logger comes from WithBackoffLogger. Omitted uses zap.NewNop.
-func ConnectKafkaWithBackoff(ctx context.Context, cfg kafka.WriterConfig, opts ...gtk.BackoffOption) (*kafka.Writer, error) {
+func ConnectWithBackoff(ctx context.Context, cfg kafka.WriterConfig, opts ...gtk.BackoffOption) (*kafka.Writer, error) {
 	backoffCfg := gtk.ApplyBackoff(opts)
 
 	l := backoffCfg.Logger

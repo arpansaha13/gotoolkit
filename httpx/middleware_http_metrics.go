@@ -14,8 +14,8 @@ import (
 
 const httpMetricsMeter = "github.com/arpansaha13/gotoolkit/gtk/http"
 
-// HttpRouteFunc returns a low-cardinality route label for r (for example a path template).
-type HttpRouteFunc func(r *http.Request) string
+// RouteFunc returns a low-cardinality route label for r (for example a path template).
+type RouteFunc func(r *http.Request) string
 
 // RoutePattern is the path template from the ServeMux pattern that matched r,
 // or "unknown". The HTTP method is stripped so it can live only on the
@@ -30,14 +30,14 @@ func RoutePattern(r *http.Request) string {
 	return r.Pattern
 }
 
-// HttpMetricsMiddleware records request count, duration, and in-flight requests.
+// MetricsMiddleware records request count, duration, and in-flight requests.
 // Instruments bind to the global MeterProvider on the first request.
 // Count and duration keep the request span only for status >= 500 or
 // duration >= 1s so the SDK's default TraceBasedFilter attaches exemplars
 // only to slow or failed traces.
 //
 // Count and duration are recorded in a defer, so they still fire if next panics.
-// Place HttpRecoveryMiddleware both before and after this middleware:
+// Place RecoveryMiddleware both before and after this middleware:
 //   - after: recovers handler/inner-MW panics, writes 500 through the status
 //     recorder, and lets this middleware record status=500
 //   - before: recovers a panic inside this middleware itself (init, route
@@ -45,7 +45,7 @@ func RoutePattern(r *http.Request) string {
 //
 // A single recovery only on one side either misses panic requests in metrics
 // or lets a metrics panic escape.
-func HttpMetricsMiddleware(routeOf HttpRouteFunc) func(http.Handler) http.Handler {
+func MetricsMiddleware(routeOf RouteFunc) func(http.Handler) http.Handler {
 	if routeOf == nil {
 		routeOf = func(*http.Request) string { return "unknown" }
 	}
@@ -55,7 +55,7 @@ func HttpMetricsMiddleware(routeOf HttpRouteFunc) func(http.Handler) http.Handle
 
 type httpMetrics struct {
 	once     sync.Once
-	routeOf  HttpRouteFunc
+	routeOf  RouteFunc
 	requests metric.Int64Counter
 	duration metric.Float64Histogram
 	inflight metric.Int64UpDownCounter

@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// connectPostgresWithBackoff opens a pgx pool and pings it with exponential
+// connectWithBackoff opens a pgx pool and pings it with exponential
 // backoff retry logic.
 //
 // MaxOpenConns > 0 is applied to the pool config. Zero leaves the pgxpool default.
@@ -28,7 +28,7 @@ import (
 //   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
 //
 // The logger comes from WithBackoffLogger. Omitted uses zap.NewNop.
-func connectPostgresWithBackoff(ctx context.Context, cfg PostgresClientConfig, opts ...gtk.BackoffOption) (*pgxpool.Pool, error) {
+func connectWithBackoff(ctx context.Context, cfg ClientConfig, opts ...gtk.BackoffOption) (*pgxpool.Pool, error) {
 	backoffCfg := gtk.ApplyBackoff(opts)
 	l := backoffCfg.Logger
 

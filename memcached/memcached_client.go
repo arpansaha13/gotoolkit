@@ -11,9 +11,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// MemcachedClient is a thread-safe wrapper around memcache.Client.
-// Construct with NewMemcachedClient (unconnected), then Start.
-type MemcachedClient struct {
+// Client is a thread-safe wrapper around memcache.Client.
+// Construct with NewClient (unconnected), then Start.
+type Client struct {
 	mu           sync.RWMutex
 	client       *memcache.Client
 	address      string
@@ -24,14 +24,14 @@ type MemcachedClient struct {
 	connectOpts  []gtk.BackoffOption
 }
 
-// NewMemcachedClient creates an unconnected client. Call Start to connect.
+// NewClient creates an unconnected client. Call Start to connect.
 // ctx is the parent for connect/backoff in Start. Nil means context.Background.
-func NewMemcachedClient(ctx context.Context, address string, opts ...any) *MemcachedClient {
+func NewClient(ctx context.Context, address string, opts ...any) *Client {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	o := applyMemcachedOptions(opts)
-	return &MemcachedClient{
+	o := applyOptions(opts)
+	return &Client{
 		ctx:          ctx,
 		address:      address,
 		startTimeout: o.startTimeout,
@@ -42,7 +42,7 @@ func NewMemcachedClient(ctx context.Context, address string, opts ...any) *Memca
 }
 
 // Start connects with backoff and stores the handle.
-func (m *MemcachedClient) Start() error {
+func (m *Client) Start() error {
 	if m == nil {
 		return fmt.Errorf("memcached client is nil")
 	}
@@ -62,7 +62,7 @@ func (m *MemcachedClient) Start() error {
 }
 
 // Stop clears the handle.
-func (m *MemcachedClient) Stop() error {
+func (m *Client) Stop() error {
 	if m == nil {
 		return nil
 	}
@@ -71,7 +71,7 @@ func (m *MemcachedClient) Stop() error {
 	return nil
 }
 
-func (m *MemcachedClient) dial(ctx context.Context) error {
+func (m *Client) dial(ctx context.Context) error {
 	client, err := m.connectWithBackoff(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to memcached: %w", err)
@@ -81,12 +81,12 @@ func (m *MemcachedClient) dial(ctx context.Context) error {
 	return nil
 }
 
-func (m *MemcachedClient) connectWithBackoff(ctx context.Context) (*memcache.Client, error) {
-	return connectMemcachedWithBackoff(ctx, m.address, gtk.DefaultConnectBackoff(m.log, m.connectOpts...)...)
+func (m *Client) connectWithBackoff(ctx context.Context) (*memcache.Client, error) {
+	return connectWithBackoff(ctx, m.address, gtk.DefaultConnectBackoff(m.log, m.connectOpts...)...)
 }
 
 // SetClient updates the underlying memcached client.
-func (m *MemcachedClient) SetClient(client *memcache.Client) {
+func (m *Client) SetClient(client *memcache.Client) {
 	if m == nil {
 		return
 	}
@@ -96,7 +96,7 @@ func (m *MemcachedClient) SetClient(client *memcache.Client) {
 }
 
 // GetClient safely retrieves the current memcached client.
-func (m *MemcachedClient) GetClient() *memcache.Client {
+func (m *Client) GetClient() *memcache.Client {
 	if m == nil {
 		return nil
 	}
@@ -106,7 +106,7 @@ func (m *MemcachedClient) GetClient() *memcache.Client {
 }
 
 // Get retrieves an item from memcached (delegates to underlying client).
-func (m *MemcachedClient) Get(key string) (*memcache.Item, error) {
+func (m *Client) Get(key string) (*memcache.Item, error) {
 	return gtk.ExecVal(m.circuit, func() (*memcache.Item, error) {
 		client := m.GetClient()
 		if client == nil {
@@ -117,7 +117,7 @@ func (m *MemcachedClient) Get(key string) (*memcache.Item, error) {
 }
 
 // Set stores an item in memcached (delegates to underlying client).
-func (m *MemcachedClient) Set(item *memcache.Item) error {
+func (m *Client) Set(item *memcache.Item) error {
 	return gtk.ExecErr(m.circuit, func() error {
 		client := m.GetClient()
 		if client == nil {
@@ -128,7 +128,7 @@ func (m *MemcachedClient) Set(item *memcache.Item) error {
 }
 
 // Delete removes an item from memcached (delegates to underlying client).
-func (m *MemcachedClient) Delete(key string) error {
+func (m *Client) Delete(key string) error {
 	return gtk.ExecErr(m.circuit, func() error {
 		client := m.GetClient()
 		if client == nil {
@@ -138,4 +138,4 @@ func (m *MemcachedClient) Delete(key string) error {
 	})
 }
 
-var _ gtk.ManagedClient = (*MemcachedClient)(nil)
+var _ gtk.ManagedClient = (*Client)(nil)

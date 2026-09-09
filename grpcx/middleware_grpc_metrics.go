@@ -15,7 +15,7 @@ import (
 
 const grpcMetricsMeter = "github.com/arpansaha13/gotoolkit/gtk/grpc"
 
-// GrpcMetricsInterceptor records unary RPC count, duration, and in-flight requests.
+// MetricsInterceptor records unary RPC count, duration, and in-flight requests.
 // Instruments bind to the global MeterProvider on the first request.
 // Count and duration keep the request span only for server-error codes
 // (Unknown, DeadlineExceeded, Internal, Unavailable, DataLoss) or
@@ -23,7 +23,7 @@ const grpcMetricsMeter = "github.com/arpansaha13/gotoolkit/gtk/grpc"
 // only to slow or failed traces.
 //
 // Count and duration are recorded in a defer, so they still fire if the handler
-// panics. Place GrpcRecoveryInterceptor both before and after this interceptor:
+// panics. Place RecoveryInterceptor both before and after this interceptor:
 //   - after: recovers handler/inner-interceptor panics, returns codes.Internal,
 //     and lets this interceptor record status=Internal
 //   - before: recovers a panic inside this interceptor itself (init or the
@@ -31,14 +31,14 @@ const grpcMetricsMeter = "github.com/arpansaha13/gotoolkit/gtk/grpc"
 //
 // A single recovery only on one side either misses panic RPCs in metrics
 // or lets a metrics panic escape.
-func GrpcMetricsInterceptor() grpc.UnaryServerInterceptor {
+func MetricsInterceptor() grpc.UnaryServerInterceptor {
 	m := &grpcMetrics{}
 	return m.unary
 }
 
-// GrpcStreamMetricsInterceptor is the streaming counterpart of
-// GrpcMetricsInterceptor. Use the same recovery-before-and-after order.
-func GrpcStreamMetricsInterceptor() grpc.StreamServerInterceptor {
+// StreamMetricsInterceptor is the streaming counterpart of
+// MetricsInterceptor. Use the same recovery-before-and-after order.
+func StreamMetricsInterceptor() grpc.StreamServerInterceptor {
 	m := &grpcMetrics{}
 	return m.stream
 }

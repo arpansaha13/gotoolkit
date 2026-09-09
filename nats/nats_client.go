@@ -18,10 +18,10 @@ import (
 // that this client already owns.
 var ErrAlreadySubscribed = errors.New("already subscribed")
 
-// NATSClient is a thread-safe wrapper around a Core NATS connection.
-// Construct with NewNATSClient (unconnected), then Start.
+// Client is a thread-safe wrapper around a Core NATS connection.
+// Construct with NewClient (unconnected), then Start.
 // Reconnect is handled by nats.go; CustomReconnectDelay uses exponential backoff.
-type NATSClient struct {
+type Client struct {
 	mu           sync.RWMutex
 	nc           *nats.Conn
 	url          string
@@ -36,16 +36,16 @@ type NATSClient struct {
 	running      bool
 }
 
-// NewNATSClient creates an unconnected client. Call Start to connect.
+// NewClient creates an unconnected client. Call Start to connect.
 // ctx is the parent for shutdown. Nil means context.Background.
-func NewNATSClient(ctx context.Context, url string, opts ...any) *NATSClient {
+func NewClient(ctx context.Context, url string, opts ...any) *Client {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	o := applyNATSOptions(opts)
+	o := applyOptions(opts)
 	bo := backoff.NewExponentialBackOff()
 	bo.Reset()
-	return &NATSClient{
+	return &Client{
 		ctx:          ctx,
 		url:          url,
 		log:          o.shared.Logger,
@@ -59,7 +59,7 @@ func NewNATSClient(ctx context.Context, url string, opts ...any) *NATSClient {
 
 // Start connects to NATS. RetryOnFailedConnect is enabled so a down server
 // does not fail Start; nats.go keeps trying in the background.
-func (c *NATSClient) Start() error {
+func (c *Client) Start() error {
 	if c == nil {
 		return fmt.Errorf("nats client is nil")
 	}
@@ -121,7 +121,7 @@ func (c *NATSClient) Start() error {
 }
 
 // Stop drains in-flight messages and closes the connection.
-func (c *NATSClient) Stop() error {
+func (c *Client) Stop() error {
 	if c == nil {
 		return nil
 	}
@@ -145,7 +145,7 @@ func (c *NATSClient) Stop() error {
 	return nil
 }
 
-func (c *NATSClient) watchContext() {
+func (c *Client) watchContext() {
 	select {
 	case <-c.ctx.Done():
 		_ = c.Stop()
@@ -154,7 +154,7 @@ func (c *NATSClient) watchContext() {
 }
 
 // IsConnected reports whether the NATS connection is live.
-func (c *NATSClient) IsConnected() bool {
+func (c *Client) IsConnected() bool {
 	if c == nil {
 		return false
 	}
@@ -165,7 +165,7 @@ func (c *NATSClient) IsConnected() bool {
 }
 
 // Conn returns the current NATS connection, or nil if disconnected.
-func (c *NATSClient) Conn() *nats.Conn {
+func (c *Client) Conn() *nats.Conn {
 	if c == nil {
 		return nil
 	}
@@ -175,7 +175,7 @@ func (c *NATSClient) Conn() *nats.Conn {
 }
 
 // Publish sends data on subject.
-func (c *NATSClient) Publish(subject string, data []byte) error {
+func (c *Client) Publish(subject string, data []byte) error {
 	return gtk.ExecErr(c.circuit, func() error {
 		c.mu.RLock()
 		nc := c.nc
@@ -188,7 +188,7 @@ func (c *NATSClient) Publish(subject string, data []byte) error {
 }
 
 // PublishJSON marshals message and publishes it on subject.
-func (c *NATSClient) PublishJSON(subject string, message any) error {
+func (c *Client) PublishJSON(subject string, message any) error {
 	body, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
@@ -197,7 +197,7 @@ func (c *NATSClient) PublishJSON(subject string, message any) error {
 }
 
 // Subscribe registers handler for subject. One subscription per subject.
-func (c *NATSClient) Subscribe(subject string, handler func([]byte)) error {
+func (c *Client) Subscribe(subject string, handler func([]byte)) error {
 	if c == nil {
 		return fmt.Errorf("nats client is nil")
 	}
@@ -236,7 +236,7 @@ func (c *NATSClient) Subscribe(subject string, handler func([]byte)) error {
 }
 
 // Unsubscribe removes the subscription for subject. No-op if not subscribed.
-func (c *NATSClient) Unsubscribe(subject string) error {
+func (c *Client) Unsubscribe(subject string) error {
 	if c == nil {
 		return nil
 	}
@@ -257,7 +257,7 @@ func (c *NATSClient) Unsubscribe(subject string) error {
 	})
 }
 
-func (c *NATSClient) nextReconnectDelay() time.Duration {
+func (c *Client) nextReconnectDelay() time.Duration {
 	c.mu.Lock()
 	d := c.reconnect.NextBackOff()
 	max := c.reconnect.MaxInterval
@@ -269,10 +269,10 @@ func (c *NATSClient) nextReconnectDelay() time.Duration {
 	return d
 }
 
-func (c *NATSClient) resetReconnectBackoff() {
+func (c *Client) resetReconnectBackoff() {
 	c.mu.Lock()
 	c.reconnect.Reset()
 	c.mu.Unlock()
 }
 
-var _ gtk.ManagedClient = (*NATSClient)(nil)
+var _ gtk.ManagedClient = (*Client)(nil)

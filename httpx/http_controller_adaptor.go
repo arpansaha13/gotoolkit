@@ -27,13 +27,13 @@ type ControllerResponse struct {
 // On success, they return a ControllerResponse with the desired status code and body.
 type ControllerFunc func(w http.ResponseWriter, r *http.Request) (*ControllerResponse, error)
 
-// HttpControllerAdaptor converts a ControllerFunc into a standard http.HandlerFunc.
+// ControllerAdaptor converts a ControllerFunc into a standard http.HandlerFunc.
 // Wrap c with ControllerErrorDecorator before calling this to map errors to responses.
-func HttpControllerAdaptor(c ControllerFunc) http.HandlerFunc {
+func ControllerAdaptor(c ControllerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp, err := c(w, r)
 		if err != nil {
-			HttpWriteErrorWithContext(w, r, err)
+			WriteErrorWithContext(w, r, err)
 			return
 		}
 		if resp == nil {
