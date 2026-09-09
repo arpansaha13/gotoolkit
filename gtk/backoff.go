@@ -6,21 +6,20 @@ import (
 )
 
 // BackoffOption is a functional option for configuring backoff behavior
-type BackoffOption func(*backoffConfig)
+type BackoffOption func(*BackoffConfig)
 
-// backoffConfig holds the configuration for exponential backoff retry logic
-type backoffConfig struct {
-	maxRetries             int           // 0 = unlimited (bounded by MaxElapsedTime)
-	permanentErrorLogLevel zapcore.Level // default: zapcore.FatalLevel
-	logger                 *zap.Logger
+// BackoffConfig holds the configuration for exponential backoff retry logic
+type BackoffConfig struct {
+	MaxRetries             int           // 0 = unlimited (bounded by MaxElapsedTime)
+	PermanentErrorLogLevel zapcore.Level // default: zapcore.FatalLevel
+	Logger                 *zap.Logger
 }
 
-// defaultBackoffConfig returns the default backoff configuration
-func defaultBackoffConfig() *backoffConfig {
-	return &backoffConfig{
-		maxRetries:             0, // unlimited by retry count (bounded by MaxElapsedTime)
-		permanentErrorLogLevel: zapcore.FatalLevel,
-		logger:                 zap.NewNop(),
+func defaultBackoffConfig() *BackoffConfig {
+	return &BackoffConfig{
+		MaxRetries:             0,
+		PermanentErrorLogLevel: zapcore.FatalLevel,
+		Logger:                 zap.NewNop(),
 	}
 }
 
@@ -28,8 +27,8 @@ func defaultBackoffConfig() *backoffConfig {
 // If maxRetries > 0, backoff will stop after that many attempts
 // If 0, retry is bounded only by MaxElapsedTime (default 15 minutes)
 func WithMaxRetries(n int) BackoffOption {
-	return func(cfg *backoffConfig) {
-		cfg.maxRetries = n
+	return func(cfg *BackoffConfig) {
+		cfg.MaxRetries = n
 	}
 }
 
@@ -37,36 +36,36 @@ func WithMaxRetries(n int) BackoffOption {
 // (when MaxElapsedTime exhausted, ctx cancelled, or Permanent returned)
 // Default is FatalLevel
 func WithPermanentErrorLogLevel(level zapcore.Level) BackoffOption {
-	return func(cfg *backoffConfig) {
-		cfg.permanentErrorLogLevel = level
+	return func(cfg *BackoffConfig) {
+		cfg.PermanentErrorLogLevel = level
 	}
 }
 
 // WithBackoffLogger sets the logger used by connect-with-backoff helpers.
 // Nil is ignored. Omitted uses zap.NewNop.
 func WithBackoffLogger(log *zap.Logger) BackoffOption {
-	return func(cfg *backoffConfig) {
+	return func(cfg *BackoffConfig) {
 		if log != nil {
-			cfg.logger = log
+			cfg.Logger = log
 		}
 	}
 }
 
-// applyOptions applies all options to create a final backoffConfig
-func applyOptions(opts []BackoffOption) *backoffConfig {
+// ApplyBackoff applies all options to create a final BackoffConfig
+func ApplyBackoff(opts []BackoffOption) *BackoffConfig {
 	cfg := defaultBackoffConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	if cfg.logger == nil {
-		cfg.logger = zap.NewNop()
+	if cfg.Logger == nil {
+		cfg.Logger = zap.NewNop()
 	}
 	return cfg
 }
 
-// defaultConnectBackoff is what managed clients pass when the app does not
+// DefaultConnectBackoff is what managed clients pass when the app does not
 // supply With*Backoff options. Extra opts (from With*Backoff) override these.
-func defaultConnectBackoff(log *zap.Logger, extra ...BackoffOption) []BackoffOption {
+func DefaultConnectBackoff(log *zap.Logger, extra ...BackoffOption) []BackoffOption {
 	out := []BackoffOption{
 		WithPermanentErrorLogLevel(zapcore.ErrorLevel),
 		WithBackoffLogger(log),

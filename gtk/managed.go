@@ -23,53 +23,54 @@ func (NoopCircuit) Execute(fn func() (any, error)) (any, error) {
 	return fn()
 }
 
-type sharedConfig struct {
-	circuit Circuit
-	logger  *zap.Logger
+// Shared is the logger/circuit set applied by Option.
+type Shared struct {
+	Circuit Circuit
+	Logger  *zap.Logger
 }
 
-// sharedOption is a WithCircuit / WithLogger value. It implements every
-// client option interface so the same call works on all managed clients.
-type sharedOption struct {
+// Option configures Shared. The same values work on every managed client.
+type Option interface {
+	Apply(*Shared)
+}
+
+type option struct {
 	circuit Circuit
 	logger  *zap.Logger
 }
 
 // WithCircuit sets the circuit used by client I/O methods.
 // A nil circuit is ignored so the default NoopCircuit stays in place.
-func WithCircuit(c Circuit) sharedOption {
-	return sharedOption{circuit: c}
+func WithCircuit(c Circuit) Option {
+	return option{circuit: c}
 }
 
 // WithLogger sets the client logger. Nil is ignored. Omitted uses zap.NewNop.
-func WithLogger(log *zap.Logger) sharedOption {
-	return sharedOption{logger: log}
+func WithLogger(log *zap.Logger) Option {
+	return option{logger: log}
 }
 
-func (o sharedOption) applyTo(s *sharedConfig) {
+func (o option) Apply(s *Shared) {
 	if o.circuit != nil {
-		s.circuit = o.circuit
+		s.Circuit = o.circuit
 	}
 	if o.logger != nil {
-		s.logger = o.logger
+		s.Logger = o.logger
 	}
 }
 
-func (o sharedOption) applyMemcached(c *memcachedConfig) { o.applyTo(&c.shared) }
-func (o sharedOption) applyRabbitMQ(c *rabbitMQConfig)   { o.applyTo(&c.shared) }
-func (o sharedOption) applyPostgres(c *postgresConfig)   { o.applyTo(&c.shared) }
-func (o sharedOption) applyNATS(c *natsConfig)           { o.applyTo(&c.shared) }
-
-func defaultShared() sharedConfig {
-	return sharedConfig{circuit: NoopCircuit{}, logger: zap.NewNop()}
+// DefaultShared is the zero option set (noop circuit, nop logger).
+func DefaultShared() Shared {
+	return Shared{Circuit: NoopCircuit{}, Logger: zap.NewNop()}
 }
 
-func finalizeShared(s *sharedConfig) {
-	if s.circuit == nil {
-		s.circuit = NoopCircuit{}
+// Finalize fills nil circuit/logger with defaults.
+func Finalize(s *Shared) {
+	if s.Circuit == nil {
+		s.Circuit = NoopCircuit{}
 	}
-	if s.logger == nil {
-		s.logger = zap.NewNop()
+	if s.Logger == nil {
+		s.Logger = zap.NewNop()
 	}
 }
 
@@ -80,14 +81,16 @@ func circuitOrNoop(c Circuit) Circuit {
 	return c
 }
 
-func execErr(c Circuit, fn func() error) error {
+// ExecErr runs fn through the circuit and returns only the error.
+func ExecErr(c Circuit, fn func() error) error {
 	_, err := circuitOrNoop(c).Execute(func() (any, error) {
 		return nil, fn()
 	})
 	return err
 }
 
-func execVal[T any](c Circuit, fn func() (T, error)) (T, error) {
+// ExecVal runs fn through the circuit and returns the typed result.
+func ExecVal[T any](c Circuit, fn func() (T, error)) (T, error) {
 	var zero T
 	v, err := circuitOrNoop(c).Execute(func() (any, error) {
 		return fn()
@@ -106,3 +109,4 @@ func execVal[T any](c Circuit, fn func() (T, error)) (T, error) {
 }
 
 var _ Circuit = NoopCircuit{}
+var _ Option = option{}

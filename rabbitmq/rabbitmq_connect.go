@@ -1,0 +1,72 @@
+package rabbitmq
+
+import (
+	"context"
+	"time"
+
+	"github.com/arpansaha13/gotoolkit/gtk"
+	"github.com/cenkalti/backoff/v5"
+	"github.com/rabbitmq/amqp091-go"
+	"go.uber.org/zap"
+)
+
+// connectRabbitMQWithBackoff connects to RabbitMQ with exponential backoff retry logic.
+//
+// The connection operation is retried with exponential backoff until:
+// - Success (returns *amqp091.Connection)
+// - MaxElapsedTime exhausted (default 15 minutes)
+// - Context cancelled
+// - maxRetries exceeded (if WithMaxRetries(n) is set)
+//
+// Per-attempt logging:
+//   - attempt <= 3: Warn level
+//   - attempt > 3: Error level
+//   - On permanent failure: logs at permanentErrorLogLevel (default: Fatal)
+//
+// The logger comes from WithBackoffLogger. Omitted uses zap.NewNop.
+// Note: Channel creation is the caller's responsibility.
+func connectRabbitMQWithBackoff(ctx context.Context, url string, opts ...gtk.BackoffOption) (*amqp091.Connection, error) {
+	cfg := gtk.ApplyBackoff(opts)
+
+	l := cfg.Logger
+
+	var attempt int
+
+	operation := func() (*amqp091.Connection, error) {
+		attempt++
+
+		conn, err := amqp091.Dial(url)
+		if err != nil {
+			if attempt <= 3 {
+				l.Warn("failed to connect to rabbitmq", zap.Int("attempt", attempt), zap.Error(err))
+			} else {
+				l.Error("failed to connect to rabbitmq", zap.Int("attempt", attempt), zap.Error(err))
+			}
+
+			if cfg.MaxRetries > 0 && attempt >= cfg.MaxRetries {
+				return nil, backoff.Permanent(err)
+			}
+
+			return nil, err
+		}
+
+		return conn, nil
+	}
+
+	retryOpts := []backoff.RetryOption{
+		backoff.WithNotify(func(err error, d time.Duration) {}),
+	}
+
+	if cfg.MaxRetries > 0 {
+		retryOpts = append(retryOpts, backoff.WithMaxTries(uint(cfg.MaxRetries)))
+	}
+
+	conn, retryErr := backoff.Retry(ctx, operation, retryOpts...)
+
+	if retryErr != nil {
+		l.Log(cfg.PermanentErrorLogLevel, "permanently failed to connect to rabbitmq", zap.Error(retryErr))
+		return nil, retryErr
+	}
+
+	return conn, nil
+}
