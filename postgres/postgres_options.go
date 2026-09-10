@@ -66,11 +66,12 @@ func WithStartTimeout(d time.Duration) Option {
 	}
 }
 
-// WithTracing records queries as children of the span in ctx.
-// Spans use otel.GetTracerProvider() at query time. Omitted is off.
+// WithTracing records pool Acquire and Query/QueryRow/Exec as children
+// of the span in ctx. Spans use otel.GetTracerProvider() at call time.
+// Omitted is off.
 func WithTracing() Option {
 	return func(c *postgresConfig) {
-		c.tracer = pgxQueryTracer{}
+		c.tracer = tracer{}
 	}
 }
 
@@ -78,14 +79,14 @@ func applyOptions(opts []Option) postgresConfig {
 	cfg := postgresConfig{
 		circuit: gtk.NoopCircuit{},
 		logger:  zap.NewNop(),
-		tracer:  noopQueryTracer{},
+		tracer:  noopTracer{},
 	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
-	if t, ok := cfg.tracer.(pgxQueryTracer); ok {
+	if t, ok := cfg.tracer.(tracer); ok {
 		t.log = cfg.logger
 		cfg.tracer = t
 	}

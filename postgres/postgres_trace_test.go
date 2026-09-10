@@ -8,7 +8,9 @@ import (
 
 	"github.com/arpansaha13/gotoolkit/gtk"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -36,18 +38,18 @@ func TestSQLVerb(t *testing.T) {
 
 func TestWithTracingAppliesToPostgres(t *testing.T) {
 	off := applyOptions(nil)
-	if _, ok := off.tracer.(noopQueryTracer); !ok {
-		t.Fatalf("default tracer = %T, want noopQueryTracer", off.tracer)
+	if _, ok := off.tracer.(noopTracer); !ok {
+		t.Fatalf("default tracer = %T, want noopTracer", off.tracer)
 	}
 	justTracing := applyOptions([]Option{WithTracing()})
-	if tr, ok := justTracing.tracer.(pgxQueryTracer); !ok || tr.log == nil {
+	if tr, ok := justTracing.tracer.(tracer); !ok || tr.log == nil {
 		t.Fatalf("WithTracing without logger = %v, want non-nil log", justTracing.tracer)
 	}
 	log := zap.NewNop()
 	on := applyOptions([]Option{WithLogger(log), WithTracing()})
-	tr, ok := on.tracer.(pgxQueryTracer)
+	tr, ok := on.tracer.(tracer)
 	if !ok {
-		t.Fatalf("WithTracing tracer = %T, want pgxQueryTracer", on.tracer)
+		t.Fatalf("WithTracing tracer = %T, want tracer", on.tracer)
 	}
 	if tr.log != log {
 		t.Fatal("WithLogger must be copied onto the tracer")
@@ -77,7 +79,7 @@ func TestClientOptionsApply(t *testing.T) {
 	}
 }
 
-func TestPgxQueryTracerChildOfRequestSpan(t *testing.T) {
+func TestTracerChildOfRequestSpan(t *testing.T) {
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	otel.SetTracerProvider(tp)
@@ -87,7 +89,7 @@ func TestPgxQueryTracerChildOfRequestSpan(t *testing.T) {
 	})
 
 	parentCtx, parent := tp.Tracer("test").Start(context.Background(), "GET /api")
-	tr := pgxQueryTracer{}
+	tr := tracer{}
 	ctx := tr.TraceQueryStart(parentCtx, nil, pgx.TraceQueryStartData{SQL: "SELECT id FROM users"})
 	tr.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{Err: errors.New("boom")})
 	parent.End()
@@ -114,7 +116,7 @@ func TestPgxQueryTracerChildOfRequestSpan(t *testing.T) {
 	}
 }
 
-func TestPgxQueryTracerSkipsWithoutParent(t *testing.T) {
+func TestTracerSkipsWithoutParent(t *testing.T) {
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	otel.SetTracerProvider(tp)
@@ -124,7 +126,7 @@ func TestPgxQueryTracerSkipsWithoutParent(t *testing.T) {
 	})
 
 	core, logs := observer.New(zapcore.WarnLevel)
-	tr := pgxQueryTracer{log: zap.New(core)}
+	tr := tracer{log: zap.New(core)}
 	ctx := tr.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
 	tr.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
 	for _, s := range sr.Ended() {
@@ -137,7 +139,7 @@ func TestPgxQueryTracerSkipsWithoutParent(t *testing.T) {
 	}
 }
 
-func TestPgxQueryTracerReduceInstrumentationSilent(t *testing.T) {
+func TestTracerReduceInstrumentationSilent(t *testing.T) {
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	otel.SetTracerProvider(tp)
@@ -147,12 +149,93 @@ func TestPgxQueryTracerReduceInstrumentationSilent(t *testing.T) {
 	})
 
 	core, logs := observer.New(zapcore.WarnLevel)
-	tr := pgxQueryTracer{log: zap.New(core)}
+	tr := tracer{log: zap.New(core)}
 	ctx := gtk.WithReduceInstrumentation(context.Background())
 	ctx = tr.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
 	tr.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
 	if len(sr.Ended()) != 0 {
 		t.Fatal("ReduceInstrumentation must not start a query span")
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("ReduceInstrumentation must not warn, got %d", logs.Len())
+	}
+}
+
+func TestTracerAcquireChildOfRequestSpan(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(noop.NewTracerProvider())
+	})
+
+	parentCtx, parent := tp.Tracer("test").Start(context.Background(), "GET /api")
+	tr := tracer{}
+	ctx := tr.TraceAcquireStart(parentCtx, nil, pgxpool.TraceAcquireStartData{})
+	tr.TraceAcquireEnd(ctx, nil, pgxpool.TraceAcquireEndData{Err: errors.New("pool full")})
+	parent.End()
+
+	var child sdktrace.ReadOnlySpan
+	for _, s := range sr.Ended() {
+		if s.Name() == "ACQUIRE" {
+			child = s
+			break
+		}
+	}
+	if child == nil {
+		t.Fatal("missing ACQUIRE span")
+	}
+	if child.Parent().SpanID() != parent.SpanContext().SpanID() {
+		t.Fatalf("parent span id = %s, want %s", child.Parent().SpanID(), parent.SpanContext().SpanID())
+	}
+	if child.SpanKind() != trace.SpanKindClient {
+		t.Fatalf("span kind = %s, want client", child.SpanKind())
+	}
+	if child.Status().Code != codes.Error {
+		t.Fatalf("status = %s, want Error", child.Status().Code)
+	}
+}
+
+func TestTracerAcquireSkipsWithoutParent(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(noop.NewTracerProvider())
+	})
+
+	core, logs := observer.New(zapcore.WarnLevel)
+	tr := tracer{log: zap.New(core)}
+	ctx := tr.TraceAcquireStart(context.Background(), nil, pgxpool.TraceAcquireStartData{})
+	tr.TraceAcquireEnd(ctx, nil, pgxpool.TraceAcquireEndData{})
+	for _, s := range sr.Ended() {
+		if s.Name() == "ACQUIRE" {
+			t.Fatal("no parent must not start an acquire span")
+		}
+	}
+	if logs.FilterMessage("skipped acquire span: no parent trace").Len() != 1 {
+		t.Fatalf("warn count = %d, want 1", logs.Len())
+	}
+}
+
+func TestTracerAcquireReduceInstrumentationSilent(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(noop.NewTracerProvider())
+	})
+
+	core, logs := observer.New(zapcore.WarnLevel)
+	tr := tracer{log: zap.New(core)}
+	ctx := gtk.WithReduceInstrumentation(context.Background())
+	ctx = tr.TraceAcquireStart(ctx, nil, pgxpool.TraceAcquireStartData{})
+	tr.TraceAcquireEnd(ctx, nil, pgxpool.TraceAcquireEndData{})
+	if len(sr.Ended()) != 0 {
+		t.Fatal("ReduceInstrumentation must not start an acquire span")
 	}
 	if logs.Len() != 0 {
 		t.Fatalf("ReduceInstrumentation must not warn, got %d", logs.Len())
